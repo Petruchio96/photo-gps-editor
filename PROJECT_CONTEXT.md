@@ -2,7 +2,7 @@
 
 ## Version / Snapshot
 Last updated: 2026-03-27
-Status: Core backend + initial GUI complete
+Status: Core backend + functional GUI (thumbnails, tooltip, context menu, GPS badge, copy/paste workflow)
 
 ---
 
@@ -47,6 +47,7 @@ Key objectives:
   - Applies EXIF orientation fix (`ImageOps.exif_transpose`)
   - Returns Qt icons for GUI display
   - Provides fallback icon for unsupported formats
+  - Adds GPS badge overlay using a PNG asset
 
 ---
 
@@ -59,6 +60,7 @@ Key objectives:
 - JPG thumbnails display correctly
 - RAW files use fallback icons
 - Portrait images now display correctly (EXIF fix applied)
+- GPS badge overlay shown on thumbnails with GPS metadata
 
 ### Right Panel (Detail / Edit Panel)
 
@@ -71,6 +73,9 @@ Key objectives:
 - Input fields:
   - Latitude
   - Longitude
+- Buttons:
+  - Copy Current GPS (single selection only)
+  - Paste Coordinates (splits clipboard into both fields)
 - Apply button (UI only, not yet wired)
 
 ---
@@ -96,14 +101,22 @@ Key objectives:
 - Clean display:
   - thumbnail
   - filename
-- No GPS text shown in grid (planned removal)
+- GPS data accessed via:
+  - hover tooltip
+  - right-click context menu
+  - right-side panel
 
-### Planned Enhancements
+### Implemented Enhancements
 
 - Hover tooltip:
-  - show GPS metadata
-- Satellite icon:
+  - shows GPS metadata
+- Right-click context menu:
+  - copy GPS coordinates
+- GPS badge overlay:
   - shown on thumbnails with GPS data
+- Copy/Paste workflow:
+  - Copy button in right panel
+  - Paste button auto-splits coordinates
 
 ---
 
@@ -124,33 +137,48 @@ Example:
 - Portrait thumbnails displaying incorrectly
   - FIXED using EXIF orientation handling
 
+- Coordinate paste usability
+  - FIXED by adding Paste button and parsing logic
+
+---
+
+## Known Issues (Open)
+
+- GPS badge overlay visibility
+  - Current PNG overlay works functionally
+  - Appears washed out on some thumbnails
+  - Needs improved contrast or redesigned asset
+
+- Portrait orientation in file picker dialog
+  - Main app thumbnails display correctly
+  - File selection dialog may show portrait images sideways
+  - Likely controlled by OS/Qt file dialog, needs investigation
+
 ---
 
 ## Next Steps (Priority Order)
 
 ### Immediate
 
-1. Remove GPS text from thumbnail labels
-2. Add hover tooltip showing GPS metadata
-3. Add right-click context menu:
-   - Copy GPS Coordinates
+1. Clean up and improve right-side panel layout
+2. Improve GPS badge visual design (contrast / clarity)
+3. Investigate file picker orientation behavior
 
 ### UI Enhancements
 
-4. Add satellite icon overlay for photos with GPS
-5. Improve thumbnail layout spacing and styling
+4. Improve thumbnail layout spacing and styling
 
 ### Editing Functionality
 
-6. Wire "Apply to Selected" button
-7. Implement GPS write using ExifTool
-8. Add validation feedback in UI
+5. Wire "Apply to Selected" button
+6. Implement GPS write using ExifTool
+7. Add validation feedback in UI
 
 ### Advanced Features
 
-9. Add paste handling for coordinate input
-10. Add "Clear GPS" option
-11. Add detail panel enhancements
+8. Add "Clear GPS" option
+9. Add detail panel enhancements
+10. Add drag-and-drop support for loading photos
 
 ---
 
@@ -171,9 +199,13 @@ The application now has:
 - Structured data model
 - Functional GUI with thumbnails and selection logic
 - Clean separation between UI and backend
-- Initial UX design validated and implemented
+- Hover tooltip for GPS inspection
+- Right-click GPS copy functionality
+- GPS badge overlay support
+- Copy/Paste coordinate workflow
+- Correct portrait orientation in main thumbnail grid
 
 Next phase focuses on:
-- interaction (hover, right-click)
-- visual indicators (icons)
+- right panel cleanup
+- visual improvements (badge + layout)
 - writing GPS metadata

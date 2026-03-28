@@ -148,6 +148,14 @@ class MainWindow(QMainWindow):
         selection_form.addRow("Selected:", self.selection_summary)
         selection_form.addRow("Current GPS:", self.current_gps_display)
 
+        # This button gives the user an obvious way to copy the current GPS from
+        # a single selected image without needing to use the thumbnail context menu.
+        self.copy_current_gps_button = QPushButton("Copy Current GPS")
+        self.copy_current_gps_button.setEnabled(False)
+        self.copy_current_gps_button.clicked.connect(self.copy_current_gps_from_panel)
+
+        selection_form.addRow("", self.copy_current_gps_button)
+
         edit_group = QGroupBox("New GPS Coordinates")
         edit_form = QFormLayout(edit_group)
 
@@ -161,6 +169,13 @@ class MainWindow(QMainWindow):
 
         edit_form.addRow("Latitude:", self.latitude_input)
         edit_form.addRow("Longitude:", self.longitude_input)
+
+        # This button reads a combined "latitude, longitude" value from the
+        # clipboard and splits it into the two edit fields automatically.
+        self.paste_coordinates_button = QPushButton("Paste Coordinates")
+        self.paste_coordinates_button.clicked.connect(self.paste_coordinates_from_clipboard)
+
+        edit_form.addRow("", self.paste_coordinates_button)
 
         # The apply button is visible now so the shape of the final UI is
         # already in place. We will wire it up in the next implementation step.
@@ -327,6 +342,74 @@ class MainWindow(QMainWindow):
 
         QApplication.clipboard().setText(f"{latitude:.6f}, {longitude:.6f}")
 
+    def copy_current_gps_from_panel(self) -> None:
+        """
+        Copy the current GPS from the right side panel when exactly one file is
+        selected and that file has GPS metadata.
+        """
+        selected_items = self.list_widget.selectedItems()
+
+        if len(selected_items) != 1:
+            return
+
+        latitude = selected_items[0].data(Qt.UserRole + 1)
+        longitude = selected_items[0].data(Qt.UserRole + 2)
+
+        self.copy_gps_coordinates(latitude, longitude)
+
+    def paste_coordinates_from_clipboard(self) -> None:
+        """
+        Read a combined coordinate string from the clipboard and split it into
+        the latitude and longitude input fields.
+
+        Expected format:
+            40.486325, -111.813415
+        """
+        clipboard_text = QApplication.clipboard().text().strip()
+        parsed = self.parse_coordinate_text(clipboard_text)
+
+        if parsed is None:
+            self.selection_notes.setPlainText(
+                "Clipboard text could not be parsed as coordinates.\n\n"
+                "Expected format:\n"
+                "40.486325, -111.813415"
+            )
+            return
+
+        latitude, longitude = parsed
+        self.latitude_input.setText(latitude)
+        self.longitude_input.setText(longitude)
+
+        self.selection_notes.setPlainText(
+            "Coordinates pasted from clipboard.\n\n"
+            f"Latitude: {latitude}\n"
+            f"Longitude: {longitude}"
+        )
+
+    def parse_coordinate_text(self, text: str) -> tuple[str, str] | None:
+        """
+        Parse a combined coordinate string into separate latitude and longitude
+        strings for the two input fields.
+
+        Supported format:
+            latitude, longitude
+
+        Returns:
+            A tuple of string values if parsing succeeds, otherwise None.
+        """
+        parts = [part.strip() for part in text.split(",")]
+
+        if len(parts) != 2:
+            return None
+
+        try:
+            float(parts[0])
+            float(parts[1])
+        except ValueError:
+            return None
+
+        return parts[0], parts[1]
+
     def update_details_panel(self) -> None:
         """
         Update the right side panel based on the current selection state.
@@ -346,6 +429,7 @@ class MainWindow(QMainWindow):
             self.selection_summary.setText("No files selected")
             self.current_gps_display.setEnabled(True)
             self.current_gps_display.setText("No file selected")
+            self.copy_current_gps_button.setEnabled(False)
             self.apply_button.setEnabled(False)
             self.selection_notes.setPlainText(
                 "Select one photo to view its current GPS.\n"
@@ -367,8 +451,10 @@ class MainWindow(QMainWindow):
                 self.current_gps_display.setText(
                     f"{info.current_latitude:.6f}, {info.current_longitude:.6f}"
                 )
+                self.copy_current_gps_button.setEnabled(True)
             else:
                 self.current_gps_display.setText("No GPS")
+                self.copy_current_gps_button.setEnabled(False)
 
             self.apply_button.setEnabled(True)
             self.selection_notes.setPlainText(
@@ -383,6 +469,7 @@ class MainWindow(QMainWindow):
         # no single authoritative value to show when multiple files are selected.
         self.current_gps_display.setEnabled(False)
         self.current_gps_display.setText("(Multiple selection)")
+        self.copy_current_gps_button.setEnabled(False)
 
         self.apply_button.setEnabled(True)
         self.selection_notes.setPlainText(

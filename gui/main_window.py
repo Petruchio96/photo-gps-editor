@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.coordinates import validate_coordinates
 from core.exiftool_wrapper import ExifToolWrapper
 from core.photo_loader import PhotoLoader
 from core.thumbnail_loader import ThumbnailLoader
@@ -181,6 +182,7 @@ class MainWindow(QMainWindow):
         # already in place. We will wire it up in the next implementation step.
         self.apply_button = QPushButton("Apply to Selected")
         self.apply_button.setEnabled(False)
+        self.apply_button.clicked.connect(self.apply_coordinates_to_selected)
 
         # Optional read only notes area.
         # This gives us a clean place to explain what the current selection
@@ -272,6 +274,38 @@ class MainWindow(QMainWindow):
         # Clear and refresh the right side panel after loading a new batch so
         # stale information from a previous selection is not left on screen.
         self.update_details_panel()
+
+    def get_selected_paths(self) -> list[Path]:
+        """
+        Return the full file paths for the currently selected thumbnail items.
+
+        Returns:
+            A list of Path objects for the selected items.
+        """
+        selected_items = self.list_widget.selectedItems()
+        return [Path(item.data(Qt.UserRole)) for item in selected_items]
+
+    def reselect_paths(self, paths_to_select: list[Path]) -> None:
+        """
+        Re-select items in the thumbnail grid after the list has been rebuilt.
+
+        Why this exists:
+            After writing metadata, we rebuild the thumbnail list so tooltips,
+            badges, and current GPS values all refresh from disk. Rebuilding the
+            list clears selection, so this helper restores the user's selection.
+
+        Args:
+            paths_to_select:
+                Paths that should be re-selected if present in the list.
+        """
+        wanted = {str(path) for path in paths_to_select}
+
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            item_path = item.data(Qt.UserRole)
+
+            if item_path in wanted:
+                item.setSelected(True)
 
     def _build_tooltip_text(
         self,
@@ -409,6 +443,71 @@ class MainWindow(QMainWindow):
             return None
 
         return parts[0], parts[1]
+
+    def apply_coordinates_to_selected(self) -> None:
+        """
+        Validate the coordinate inputs and write them to all selected files.
+
+        Workflow:
+        1. Make sure one or more files are selected
+        2. Validate latitude and longitude
+        3. Write metadata to each selected file
+        4. Refresh the thumbnail list so GPS values, tooltips, and badges update
+        5. Restore selection and show a summary message
+        """
+        target_paths = self.get_selected_paths()
+
+        if not target_paths:
+            self.selection_notes.setPlainText(
+                "No files selected.\n\n"
+                "Select one or more photos before applying coordinates."
+            )
+            return
+
+        try:
+            latitude, longitude = validate_coordinates(
+                self.latitude_input.text().strip(),
+                self.longitude_input.text().strip(),
+            )
+        except ValueError as exc:
+            self.selection_notes.setPlainText(
+                "Coordinate validation failed.\n\n"
+                f"{exc}"
+            )
+            return
+
+        success_count = 0
+        failed_paths: list[str] = []
+
+        for path in target_paths:
+            try:
+                self.exiftool.write_gps(path, latitude, longitude)
+                success_count += 1
+            except Exception as exc:
+                failed_paths.append(f"{path.name}: {exc}")
+
+        # Rebuild the list so every visual element that depends on GPS metadata
+        # is refreshed from disk.
+        self.populate_list()
+        self.reselect_paths(target_paths)
+        self.update_details_panel()
+
+        if failed_paths:
+            failure_text = "\n".join(failed_paths)
+            self.selection_notes.setPlainText(
+                "Apply completed with some failures.\n\n"
+                f"Successful writes: {success_count}\n"
+                f"Failed writes: {len(failed_paths)}\n\n"
+                f"{failure_text}"
+            )
+            return
+
+        self.selection_notes.setPlainText(
+            "Coordinates applied successfully.\n\n"
+            f"Updated files: {success_count}\n"
+            f"Latitude: {latitude:.6f}\n"
+            f"Longitude: {longitude:.6f}"
+        )
 
     def update_details_panel(self) -> None:
         """

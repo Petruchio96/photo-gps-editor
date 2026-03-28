@@ -2,7 +2,10 @@
 
 ## Version / Snapshot
 Last updated: 2026-03-27
-Status: Core backend + functional GUI (thumbnails, tooltip, context menu, GPS badge, copy/paste workflow)
+Status: Core backend + functional GUI (thumbnails, tooltip, context menu, GPS badge, copy/paste workflow, GPS writing)
+
+## Repository
+GitHub repo: https://github.com/Petruchio96/photo-gps-editor
 
 ---
 
@@ -37,6 +40,7 @@ Key objectives:
   - Handles interaction with ExifTool
   - Reads GPS metadata using JSON output
   - Uses `-n` for numeric coordinate output
+  - Writes GPS metadata to files
 
 - `photo_loader.py`
   - Converts file paths into `PhotoInfo` objects
@@ -69,14 +73,14 @@ Key objectives:
   - current GPS for single selection
 - Behavior:
   - single selection → shows GPS
-  - multiple selection → disables GPS display and shows "(Multiple selection)"
+  - multiple selection → disables current GPS display and shows "(Multiple selection)"
 - Input fields:
   - Latitude
   - Longitude
 - Buttons:
   - Copy Current GPS (single selection only)
   - Paste Coordinates (splits clipboard into both fields)
-- Apply button (UI only, not yet wired)
+  - Apply to Selected (working)
 
 ---
 
@@ -117,6 +121,10 @@ Key objectives:
 - Copy/Paste workflow:
   - Copy button in right panel
   - Paste button auto-splits coordinates
+- Apply workflow:
+  - validates coordinates
+  - writes GPS to selected files
+  - refreshes UI afterward
 
 ---
 
@@ -124,6 +132,7 @@ Key objectives:
 
 - Right-click context menu on thumbnail
 - Option: "Copy GPS Coordinates"
+- Right panel copy button for single selection
 - Format:
   latitude, longitude (decimal format)
 
@@ -139,6 +148,9 @@ Example:
 
 - Coordinate paste usability
   - FIXED by adding Paste button and parsing logic
+
+- GPS writing workflow
+  - IMPLEMENTED and working for single and multi-file selection
 
 ---
 
@@ -167,18 +179,19 @@ Example:
 ### UI Enhancements
 
 4. Improve thumbnail layout spacing and styling
+5. Improve status / success / error presentation in the right panel
 
 ### Editing Functionality
 
-5. Wire "Apply to Selected" button
-6. Implement GPS write using ExifTool
-7. Add validation feedback in UI
+6. Add validation feedback in UI
+7. Consider adding backup option before writing metadata
+8. Consider clear / remove GPS workflow
 
 ### Advanced Features
 
-8. Add "Clear GPS" option
-9. Add detail panel enhancements
-10. Add drag-and-drop support for loading photos
+9. Add "Clear GPS" option
+10. Add detail panel enhancements
+11. Add drag-and-drop support for loading photos
 
 ---
 
@@ -188,6 +201,7 @@ Example:
 - Virtual environment must be active before running app
 - GUI uses PySide6
 - Image processing uses Pillow
+- Metadata reading and writing use ExifTool
 
 ---
 
@@ -196,6 +210,7 @@ Example:
 The application now has:
 
 - Working backend for GPS reading
+- Working backend for GPS writing
 - Structured data model
 - Functional GUI with thumbnails and selection logic
 - Clean separation between UI and backend
@@ -203,9 +218,10 @@ The application now has:
 - Right-click GPS copy functionality
 - GPS badge overlay support
 - Copy/Paste coordinate workflow
+- Apply-to-selected workflow
 - Correct portrait orientation in main thumbnail grid
 
 Next phase focuses on:
 - right panel cleanup
 - visual improvements (badge + layout)
-- writing GPS metadata
+- polishing the write workflow

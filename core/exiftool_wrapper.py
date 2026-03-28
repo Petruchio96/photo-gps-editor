@@ -112,3 +112,50 @@ class ExifToolWrapper:
             "latitude": record.get("GPSLatitude"),
             "longitude": record.get("GPSLongitude"),
         }
+
+    def write_gps(self, path: Path, latitude: float, longitude: float) -> None:
+        """
+        Write GPS metadata to a file using ExifTool.
+
+        Why we set latitude/longitude references explicitly:
+            GPS metadata is commonly stored as a positive numeric value plus a
+            directional reference:
+                latitude  -> N or S
+                longitude -> E or W
+
+            This keeps the metadata explicit and avoids ambiguity.
+
+        Args:
+            path:
+                Path to the image file to update.
+            latitude:
+                Decimal latitude value.
+            longitude:
+                Decimal longitude value.
+
+        Raises:
+            RuntimeError:
+                If ExifTool fails to write the metadata.
+        """
+        latitude_ref = "N" if latitude >= 0 else "S"
+        longitude_ref = "E" if longitude >= 0 else "W"
+
+        command = [
+            self.executable,
+            "-overwrite_original",
+            f"-GPSLatitude={abs(latitude)}",
+            f"-GPSLatitudeRef={latitude_ref}",
+            f"-GPSLongitude={abs(longitude)}",
+            f"-GPSLongitudeRef={longitude_ref}",
+            str(path),
+        ]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Failed to write metadata.")

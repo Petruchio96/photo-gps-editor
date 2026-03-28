@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtCore import Qt
 
 
@@ -39,7 +39,16 @@ class ThumbnailLoader:
         """
         self.thumbnail_size = thumbnail_size
 
-    def load_icon(self, path: Path) -> QIcon:
+        # Store the path to the overlay icon used for photos that already have
+        # GPS metadata. Keeping this as a project asset makes the badge more
+        # consistent and professional than drawing a temporary text marker.
+        self.overlay_icon_path = (
+            Path(__file__).resolve().parent.parent
+            / "assets"
+            / "satellite_overlay_icon_128.png"
+        )
+
+    def load_icon(self, path: Path, has_gps: bool = False) -> QIcon:
         """
         Return a QIcon for the given file.
 
@@ -47,9 +56,14 @@ class ThumbnailLoader:
         If that fails, or if the file type is something else like CR2/CR3/DNG,
         we return a fallback icon.
 
+        If the file has GPS metadata, we overlay a small badge in the top-right
+        corner so the user can identify geotagged photos at a glance.
+
         Args:
             path:
                 Path to the file we want to represent in the UI.
+            has_gps:
+                True when the file has GPS metadata and should receive a badge.
 
         Returns:
             A QIcon that can be shown in a QListWidget or similar Qt widget.
@@ -57,9 +71,10 @@ class ThumbnailLoader:
         if path.suffix.lower() in {".jpg", ".jpeg"}:
             real_icon = self._load_jpeg_thumbnail(path)
             if real_icon is not None:
-                return real_icon
+                return self._add_gps_badge(real_icon) if has_gps else real_icon
 
-        return self._create_fallback_icon()
+        fallback_icon = self._create_fallback_icon()
+        return self._add_gps_badge(fallback_icon) if has_gps else fallback_icon
 
     def _load_jpeg_thumbnail(self, path: Path) -> QIcon | None:
         """
@@ -123,6 +138,61 @@ class ThumbnailLoader:
         buffer = BytesIO()
         image.save(buffer, format="PNG")
         return buffer.getvalue()
+
+    def _add_gps_badge(self, icon: QIcon) -> QIcon:
+        """
+        Draw a small GPS badge in the upper-right corner of an existing icon.
+
+        Instead of drawing a text or emoji marker, this version uses a real PNG
+        asset from the project so the badge looks the same across systems.
+
+        Args:
+            icon:
+                The base icon that represents the thumbnail.
+
+        Returns:
+            A new QIcon with the GPS badge drawn on top. If the overlay asset
+            cannot be loaded, the original icon is returned unchanged.
+        """
+        base_pixmap = icon.pixmap(self.thumbnail_size, self.thumbnail_size)
+
+        # If Qt fails to render the thumbnail pixmap, return the original icon
+        # instead of trying to draw on an invalid surface.
+        if base_pixmap.isNull():
+            return icon
+
+        overlay = QPixmap(str(self.overlay_icon_path))
+
+        # If the overlay asset is missing or unreadable, fail gracefully and
+        # return the original icon without a badge.
+        if overlay.isNull():
+            return icon
+
+        # Scale the overlay so it stays small and does not overpower the
+        # thumbnail image itself.
+        overlay_size = 28
+        overlay = overlay.scaled(
+            overlay_size,
+            overlay_size,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+
+        painter = QPainter(base_pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        # Use the actual pixmap dimensions, not the requested thumbnail size.
+        # Real thumbnails often preserve aspect ratio, so they may be smaller
+        # than the full bounding box in one dimension.
+        badge_margin = 6
+        badge_x = max(0, base_pixmap.width() - overlay.width() - badge_margin)
+        badge_y = badge_margin
+
+        painter.drawPixmap(badge_x, badge_y, overlay)
+        painter.end()
+
+        return QIcon(base_pixmap)
 
     def _create_fallback_icon(self) -> QIcon:
         """

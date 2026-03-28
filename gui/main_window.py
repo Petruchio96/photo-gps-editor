@@ -15,8 +15,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -104,6 +107,11 @@ class MainWindow(QMainWindow):
         # Whenever the selection changes, update the right side panel so it
         # reflects either one selected file or a multi selection state.
         self.list_widget.itemSelectionChanged.connect(self.update_details_panel)
+
+        # Use a custom context menu so right click actions can be added to
+        # individual thumbnail items without cluttering the main UI.
+        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
 
         content_layout.addWidget(self.list_widget, 3)
         content_layout.addWidget(self._build_right_panel(), 2)
@@ -201,38 +209,123 @@ class MainWindow(QMainWindow):
         """
         Fill the list widget with selected files.
 
-        For now:
-        1. shows thumbnail icon
-        2. shows filename
-        3. shows a simple GPS / No GPS status line
+        Current thumbnail tile content:
+        1. thumbnail icon
+        2. filename
+
+        GPS details are available through:
+        1. hover tooltip
+        2. right click context menu
+        3. right side detail panel
         """
 
         self.list_widget.clear()
 
         for path in self.selected_paths:
             info = self.loader.load_photo_info(path)
-            icon = self.thumbnail_loader.load_icon(path)
+            icon = self.thumbnail_loader.load_icon(
+                path,
+                has_gps=(
+                    info.current_latitude is not None
+                    and info.current_longitude is not None
+                ),
+            )
 
-            if info.current_latitude is not None and info.current_longitude is not None:
-                text = (
-                    f"{path.name}\n"
-                    f"GPS: {info.current_latitude:.6f}, {info.current_longitude:.6f}"
-                )
-            else:
-                text = f"{path.name}\nNo GPS"
-
-            item = QListWidgetItem(icon, text)
+            # Keep thumbnail labels visually clean by showing only the filename.
+            item = QListWidgetItem(icon, path.name)
 
             # Store the full path on the item so later features like detail
             # panels, context menus, and write operations can find the real file
             # without trying to reconstruct it from the display text.
-            item.setData(256, str(path))
+            item.setData(Qt.UserRole, str(path))
+
+            # Store GPS values directly on the item so hover text and the
+            # context menu can use them without reloading metadata.
+            item.setData(Qt.UserRole + 1, info.current_latitude)
+            item.setData(Qt.UserRole + 2, info.current_longitude)
+
+            item.setToolTip(
+                self._build_tooltip_text(
+                    path.name,
+                    info.current_latitude,
+                    info.current_longitude,
+                )
+            )
 
             self.list_widget.addItem(item)
 
         # Clear and refresh the right side panel after loading a new batch so
         # stale information from a previous selection is not left on screen.
         self.update_details_panel()
+
+    def _build_tooltip_text(
+        self,
+        filename: str,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> str:
+        """
+        Build hover tooltip text for a thumbnail item.
+
+        Args:
+            filename:
+                Name of the file being displayed.
+            latitude:
+                GPS latitude if present, otherwise None.
+            longitude:
+                GPS longitude if present, otherwise None.
+
+        Returns:
+            Human-readable tooltip text for the thumbnail.
+        """
+        if latitude is not None and longitude is not None:
+            return f"{filename}\nGPS: {latitude:.6f}, {longitude:.6f}"
+
+        return f"{filename}\nNo GPS"
+
+    def show_context_menu(self, position) -> None:
+        """
+        Show the right click menu for the thumbnail under the mouse.
+
+        Current action:
+        1. Copy GPS Coordinates
+
+        The action is enabled only when the clicked file has GPS metadata.
+        """
+        item = self.list_widget.itemAt(position)
+
+        if item is None:
+            return
+
+        latitude = item.data(Qt.UserRole + 1)
+        longitude = item.data(Qt.UserRole + 2)
+
+        menu = QMenu(self)
+
+        copy_action = QAction("Copy GPS Coordinates", self)
+        copy_action.setEnabled(latitude is not None and longitude is not None)
+        copy_action.triggered.connect(
+            lambda: self.copy_gps_coordinates(latitude, longitude)
+        )
+
+        menu.addAction(copy_action)
+        menu.exec(self.list_widget.viewport().mapToGlobal(position))
+
+    def copy_gps_coordinates(
+        self,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> None:
+        """
+        Copy GPS coordinates to the clipboard in decimal format.
+
+        Example copied text:
+            40.486325, -111.813415
+        """
+        if latitude is None or longitude is None:
+            return
+
+        QApplication.clipboard().setText(f"{latitude:.6f}, {longitude:.6f}")
 
     def update_details_panel(self) -> None:
         """
@@ -261,7 +354,7 @@ class MainWindow(QMainWindow):
             return
 
         if selected_count == 1:
-            selected_path = Path(selected_items[0].data(256))
+            selected_path = Path(selected_items[0].data(Qt.UserRole))
             info = self.loader.load_photo_info(selected_path)
 
             self.selection_summary.setText("1 file")

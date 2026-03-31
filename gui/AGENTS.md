@@ -20,3 +20,6 @@ Project notes:
 1. This is a Python + PySide6 desktop app
 2. Prioritize functionality and workflow correctness before visual polish
 3. Preserve current architecture unless explicitly asked to refactor
+4. Never modify PROJECT_CONTEXT.md as part of normal feature work. Only update it when the user explicitly requests a PROJECT_CONTEXT.md update
+5. When asked to update PROJECT_CONTEXT.md warn the user that changes should only be made to this file when working in the main branch or merging to it
+

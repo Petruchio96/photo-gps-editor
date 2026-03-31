@@ -170,6 +170,12 @@ class MainWindow(QMainWindow):
         self.latitude_input.setPlaceholderText("e.g. 40.486325")
         self.longitude_input.setPlaceholderText("e.g. -111.813415")
 
+        # Re-check each field when the user finishes editing and moves focus
+        # away. This lets a corrected field return to normal without requiring
+        # another Apply click.
+        self.latitude_input.editingFinished.connect(self.validate_latitude_field)
+        self.longitude_input.editingFinished.connect(self.validate_longitude_field)
+
         edit_form.addRow("Latitude:", self.latitude_input)
         edit_form.addRow("Longitude:", self.longitude_input)
 
@@ -206,10 +212,16 @@ class MainWindow(QMainWindow):
         Open a file dialog and allow user to select one or more images.
         """
 
+        # Determine a sensible default directory in a cross-platform way.
+        # Prefer the user's Pictures folder if it exists, otherwise fall back
+        # to the home directory.
+        pictures_dir = Path.home() / "Pictures"
+        start_dir = pictures_dir if pictures_dir.exists() else Path.home()
+
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Photos",
-            "",
+            str(start_dir),
             # Qt file filters on Linux are case-sensitive, so we include both
             # lowercase and uppercase versions of each supported extension.
             "Images (*.jpg *.JPG *.jpeg *.JPEG *.cr2 *.CR2 *.cr3 *.CR3 *.dng *.DNG)",
@@ -455,6 +467,85 @@ class MainWindow(QMainWindow):
 
         return parts[0], parts[1]
 
+    def set_input_error_state(self, field: QLineEdit, has_error: bool) -> None:
+        """
+        Visually mark a coordinate input field as either valid or invalid.
+
+        Why this exists:
+        1. Validation messages in the status field are helpful
+        2. Highlighting the actual bad field makes the problem easier to spot
+        3. A tooltip gives the user the valid numeric range when a field is invalid
+
+        Args:
+            field:
+                The QLineEdit to style
+            has_error:
+                True to show an error state, False to return to normal styling
+        """
+        if has_error:
+            field.setStyleSheet(
+                "QLineEdit {"
+                "border: 1px solid #c62828;"
+                "background-color: #fff5f5;"
+                "}"
+            )
+
+            if field is self.latitude_input:
+                field.setToolTip("Invalid latitude. Enter a number between -90 and 90")
+            elif field is self.longitude_input:
+                field.setToolTip("Invalid longitude. Enter a number between -180 and 180")
+        else:
+            field.setStyleSheet("")
+            field.setToolTip("")
+
+    def validate_latitude_field(self) -> None:
+        """
+        Re-check the latitude field when editing finishes.
+
+        Behavior:
+        1. Empty field stays neutral until Apply is clicked
+        2. Valid value clears any red error styling
+        3. Invalid value keeps or applies red error styling
+        """
+        text = self.latitude_input.text().strip()
+
+        if not text:
+            self.set_input_error_state(self.latitude_input, False)
+            return
+
+        try:
+            value = float(text)
+            self.set_input_error_state(
+                self.latitude_input,
+                not (-90 <= value <= 90),
+            )
+        except ValueError:
+            self.set_input_error_state(self.latitude_input, True)
+
+    def validate_longitude_field(self) -> None:
+        """
+        Re-check the longitude field when editing finishes.
+
+        Behavior:
+        1. Empty field stays neutral until Apply is clicked
+        2. Valid value clears any red error styling
+        3. Invalid value keeps or applies red error styling
+        """
+        text = self.longitude_input.text().strip()
+
+        if not text:
+            self.set_input_error_state(self.longitude_input, False)
+            return
+
+        try:
+            value = float(text)
+            self.set_input_error_state(
+                self.longitude_input,
+                not (-180 <= value <= 180),
+            )
+        except ValueError:
+            self.set_input_error_state(self.longitude_input, True)
+
     def apply_coordinates_to_selected(self) -> None:
         """
         Validate the coordinate inputs and write them to all selected files.
@@ -474,14 +565,39 @@ class MainWindow(QMainWindow):
             )
             return
 
+        latitude_text = self.latitude_input.text().strip()
+        longitude_text = self.longitude_input.text().strip()
+
+        latitude_has_error = False
+        longitude_has_error = False
+
         try:
-            latitude, longitude = validate_coordinates(
-                self.latitude_input.text().strip(),
-                self.longitude_input.text().strip(),
+            latitude = float(latitude_text)
+            if not (-90 <= latitude <= 90):
+                latitude_has_error = True
+        except ValueError:
+            latitude_has_error = True
+
+        try:
+            longitude = float(longitude_text)
+            if not (-180 <= longitude <= 180):
+                longitude_has_error = True
+        except ValueError:
+            longitude_has_error = True
+
+        # Update the visual error state before deciding whether to continue.
+        self.set_input_error_state(self.latitude_input, latitude_has_error)
+        self.set_input_error_state(self.longitude_input, longitude_has_error)
+
+        if latitude_has_error or longitude_has_error:
+            self.status_label.setText(
+                "Coordinate validation failed. Check the highlighted field(s)."
             )
-        except ValueError as exc:
-            self.status_label.setText(f"Coordinate validation failed: {exc}")
             return
+
+        # Run the shared validator after basic field-level checks succeed.
+        # This keeps all final coordinate validation logic centralized.
+        latitude, longitude = validate_coordinates(latitude_text, longitude_text)
 
         success_count = 0
         failed_paths: list[str] = []

@@ -1,8 +1,8 @@
 # Photo GPS Editor - Project Context
 
 ## Version / Snapshot
-Last updated: 2026-03-27
-Status: Core backend + functional GUI (thumbnails, tooltip, context menu, GPS badge, copy/paste workflow, GPS writing)
+Last updated: 2026-03-30
+Status: Functional GUI with GPS workflow complete (thumbnails, tooltip, context menu, GPS badge, copy/paste/apply workflow, validation, UI feedback improvements)
 
 ## Repository
 GitHub repo: https://github.com/Petruchio96/photo-gps-editor
@@ -81,6 +81,24 @@ Key objectives:
   - Copy Current GPS (single selection only)
   - Paste Coordinates (splits clipboard into both fields)
   - Apply to Selected (working)
+
+- Status messaging:
+  - Single-line status field replaces previous notes area
+  - Displays success, error, and guidance messages
+
+- Validation UX:
+  - Field-level validation for latitude and longitude
+  - Invalid fields highlighted with red border and background
+  - Tooltip shown on invalid fields with valid range guidance
+  - Error styling clears automatically when user corrects input and changes focus
+
+- Input improvements:
+  - Placeholder examples for coordinate format
+  - Paste workflow provides immediate feedback
+
+- Workflow clarity:
+  - Copy Current GPS remains in Selection section (acts on selected file)
+  - Paste Coordinates remains in Edit section (acts on input fields)
 
 ---
 
@@ -172,7 +190,7 @@ Example:
 
 ### Immediate
 
-1. Clean up and improve right-side panel layout
+1. Continue right-side panel polish (visual styling and spacing)
 2. Improve GPS badge visual design (contrast / clarity)
 3. Investigate file picker orientation behavior
 
@@ -181,9 +199,17 @@ Example:
 4. Improve thumbnail layout spacing and styling
 5. Improve status / success / error presentation in the right panel
 
+### UI Direction (Important)
+
+- Prioritize functionality and workflow correctness first
+- Defer visual polish until core features are stable
+- Future goal:
+  - Make UI look and feel like a professional desktop application
+  - Improve styling, spacing, and visual hierarchy
+
 ### Editing Functionality
 
-6. Add validation feedback in UI
+6. Add validation feedback in UI (completed, may refine)
 7. Consider adding backup option before writing metadata
 8. Consider clear / remove GPS workflow
 
@@ -219,9 +245,11 @@ The application now has:
 - GPS badge overlay support
 - Copy/Paste coordinate workflow
 - Apply-to-selected workflow
+- Field-level validation with visual feedback
+- Status messaging system in right panel
 - Correct portrait orientation in main thumbnail grid
 
 Next phase focuses on:
-- right panel cleanup
+- continued right panel polish
 - visual improvements (badge + layout)
-- polishing the write workflow
+- progressing toward a professional-quality UI

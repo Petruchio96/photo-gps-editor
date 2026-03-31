@@ -642,15 +642,17 @@ class MainWindow(QMainWindow):
             return
 
         if selected_count == 1:
-            selected_path = Path(selected_items[0].data(Qt.UserRole))
-            info = self.loader.load_photo_info(selected_path)
+            selected_item = selected_items[0]
+            selected_path = Path(selected_item.data(Qt.UserRole))
+            latitude = selected_item.data(Qt.UserRole + 1)
+            longitude = selected_item.data(Qt.UserRole + 2)
 
             self.selection_summary.setText("1 file")
             self.current_gps_display.setEnabled(True)
 
-            if info.current_latitude is not None and info.current_longitude is not None:
+            if latitude is not None and longitude is not None:
                 self.current_gps_display.setText(
-                    f"{info.current_latitude:.6f}, {info.current_longitude:.6f}"
+                    f"{latitude:.6f}, {longitude:.6f}"
                 )
                 self.copy_current_gps_button.setEnabled(True)
             else:

@@ -228,6 +228,7 @@ Example:
 - GUI uses PySide6
 - Image processing uses Pillow
 - Metadata reading and writing use ExifTool
+- Right panel single-selection GPS display now uses cached latitude/longitude from the selected thumbnail item instead of reloading photo metadata
 
 ---
 

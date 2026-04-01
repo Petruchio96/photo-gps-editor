@@ -11,7 +11,7 @@ def main() -> int:
     app.setApplicationName("Photo GPS Editor")
     app.setOrganizationName("Photo GPS Editor")
     app.setStyle(QStyleFactory.create("Fusion"))
-    app.setWindowIcon(QIcon("assets/satellite_overlay_icon_128.png"))
+    app.setWindowIcon(QIcon("assets/app_icon_128.png"))
 
     window = MainWindow()
     window.show()

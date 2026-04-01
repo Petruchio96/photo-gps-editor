@@ -15,35 +15,40 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
-    QButtonGroup,
-    QFrame,
     QFileDialog,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QSplitter,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from core.coordinates import validate_coordinates
 from core.exiftool_wrapper import ExifToolWrapper
 from core.photo_loader import PhotoLoader
 from core.thumbnail_loader import ThumbnailLoader
+from gui.services.coordinate_text import (
+    parse_coordinate_text,
+    parse_manual_coordinates,
+)
+from gui.services.selection import (
+    can_set_source_from_items,
+    get_destination_paths,
+    get_overwrite_entries,
+)
+from gui.services.thumbnail_items import build_tooltip_text, reselect_paths
+from gui.styles import APP_STYLESHEET
+from gui.widgets.browser_panel import build_browser_panel
+from gui.widgets.editor_panel import build_editor_panel
 
 
 class MainWindow(QMainWindow):
@@ -79,6 +84,7 @@ class MainWindow(QMainWindow):
         self.source_photo_path: Path | None = None
         self.source_latitude: float | None = None
         self.source_longitude: float | None = None
+        self._is_splitting_manual_coordinates = False
 
         # Build the UI
         self._build_ui()
@@ -137,236 +143,14 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._build_browser_panel())
-        splitter.addWidget(self._build_right_panel())
+        splitter.addWidget(build_browser_panel(self))
+        splitter.addWidget(build_editor_panel(self))
         splitter.setStretchFactor(0, 5)
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([860, 420])
 
         outer_layout.addLayout(header_layout)
         outer_layout.addWidget(splitter, 1)
-
-    def _build_browser_panel(self) -> QWidget:
-        """
-        Create the thumbnail browser panel shown on the left side.
-        """
-        panel = QFrame()
-        panel.setObjectName("panel")
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
-
-        section_heading = QLabel("Library")
-        section_heading.setObjectName("sectionTitle")
-
-        section_note = QLabel(
-            "Select one or many images. Right click any thumbnail to copy its current GPS coordinates."
-        )
-        section_note.setObjectName("sectionNote")
-        section_note.setWordWrap(True)
-
-        self.list_widget = QListWidget()
-        self.list_widget.setObjectName("thumbnailGrid")
-
-        # Use icon mode so the list widget behaves like a simple thumbnail grid.
-        self.list_widget.setViewMode(QListWidget.IconMode)
-        self.list_widget.setIconSize(QSize(128, 128))
-        self.list_widget.setGridSize(QSize(170, 190))
-        self.list_widget.setResizeMode(QListWidget.Adjust)
-        self.list_widget.setSpacing(12)
-        self.list_widget.setUniformItemSizes(True)
-        self.list_widget.setWordWrap(True)
-
-        # Extended selection allows:
-        # 1. single click selection
-        # 2. Ctrl click multi selection
-        # 3. Shift click range selection
-        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
-
-        # Whenever the selection changes, update the right side panel so it
-        # reflects either one selected file or a multi selection state.
-        self.list_widget.itemSelectionChanged.connect(self.update_details_panel)
-
-        # Use a custom context menu so right click actions can be added to
-        # individual thumbnail items without cluttering the main UI.
-        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
-
-        self.browser_hint = QLabel(
-            "No photos loaded yet. Use Open Photos to populate the grid."
-        )
-        self.browser_hint.setObjectName("browserHint")
-        self.browser_hint.setWordWrap(True)
-
-        layout.addWidget(section_heading)
-        layout.addWidget(section_note)
-        layout.addWidget(self.list_widget, 1)
-        layout.addWidget(self.browser_hint)
-
-        return panel
-
-    def _build_right_panel(self) -> QWidget:
-        """
-        Create the right side panel.
-
-        This panel is where the user will:
-        1. choose the source GPS values
-        2. review the destination files
-        3. apply those values to one or many selected files
-        """
-        panel = QFrame()
-        panel.setObjectName("panel")
-        layout = QVBoxLayout(panel)
-
-        # Add a little breathing room so the right panel feels less cramped.
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
-
-        inspector_title = QLabel("GPS Editor")
-        inspector_title.setObjectName("sectionTitle")
-
-        inspector_note = QLabel(
-            "Choose the coordinates to apply, review the destination files, and then write metadata with a clear overwrite check."
-        )
-        inspector_note.setObjectName("sectionNote")
-        inspector_note.setWordWrap(True)
-
-        source_group = QGroupBox("GPS Source")
-        source_layout = QVBoxLayout(source_group)
-        source_layout.setSpacing(10)
-
-        self.photo_source_radio = QRadioButton("Use Selected Photo")
-        self.manual_source_radio = QRadioButton("Enter Coordinates Manually")
-        self.photo_source_radio.setChecked(True)
-
-        self.source_mode_group = QButtonGroup(self)
-        self.source_mode_group.addButton(self.photo_source_radio)
-        self.source_mode_group.addButton(self.manual_source_radio)
-        self.photo_source_radio.toggled.connect(self._update_source_mode_ui)
-
-        source_mode_layout = QVBoxLayout()
-        source_mode_layout.setSpacing(6)
-        source_mode_layout.addWidget(self.photo_source_radio)
-        source_mode_layout.addWidget(self.manual_source_radio)
-
-        self.source_preview_stack = QStackedWidget()
-
-        empty_source_widget = QWidget()
-        empty_source_layout = QVBoxLayout(empty_source_widget)
-        empty_source_layout.setContentsMargins(0, 0, 0, 0)
-        empty_source_layout.setSpacing(8)
-
-        empty_source_label = QLabel(
-            "No source photo selected yet. Pick a single photo in the library, then use the button below to lock it in as the GPS source."
-        )
-        empty_source_label.setObjectName("sourceHint")
-        empty_source_label.setWordWrap(True)
-        empty_source_layout.addWidget(empty_source_label)
-
-        source_preview_widget = QWidget()
-        source_preview_layout = QVBoxLayout(source_preview_widget)
-        source_preview_layout.setContentsMargins(0, 0, 0, 0)
-        source_preview_layout.setSpacing(8)
-
-        self.source_thumbnail = QLabel()
-        self.source_thumbnail.setObjectName("sourceThumbnail")
-        self.source_thumbnail.setFixedSize(180, 180)
-        self.source_thumbnail.setAlignment(Qt.AlignCenter)
-
-        self.source_file_label = QLabel("No source photo selected")
-        self.source_file_label.setObjectName("sourceFileLabel")
-        self.source_file_label.setWordWrap(True)
-
-        source_preview_layout.addWidget(self.source_file_label)
-        source_preview_layout.addWidget(self.source_thumbnail, alignment=Qt.AlignCenter)
-
-        self.source_preview_stack.addWidget(empty_source_widget)
-        self.source_preview_stack.addWidget(source_preview_widget)
-
-        self.set_source_button = QPushButton("Use Selected Photo as GPS Source")
-        self.set_source_button.setEnabled(False)
-        self.set_source_button.clicked.connect(self.set_selected_photo_as_source)
-
-        self.clear_source_button = QPushButton("Clear Source")
-        self.clear_source_button.setEnabled(False)
-        self.clear_source_button.clicked.connect(self.clear_source_photo)
-
-        photo_source_panel = QWidget()
-        photo_source_layout = QVBoxLayout(photo_source_panel)
-        photo_source_layout.setContentsMargins(0, 0, 0, 0)
-        photo_source_layout.setSpacing(10)
-        photo_source_layout.addWidget(self.source_preview_stack)
-
-        source_button_row = QHBoxLayout()
-        source_button_row.setSpacing(10)
-        source_button_row.addWidget(self.set_source_button)
-        source_button_row.addWidget(self.clear_source_button)
-        photo_source_layout.addLayout(source_button_row)
-
-        self.manual_source_panel = QWidget()
-        manual_source_layout = QFormLayout(self.manual_source_panel)
-        manual_source_layout.setContentsMargins(0, 0, 0, 0)
-        manual_source_layout.setSpacing(10)
-
-        self.latitude_input = QLineEdit()
-        self.longitude_input = QLineEdit()
-        self.latitude_input.setPlaceholderText("e.g. 40.486325")
-        self.longitude_input.setPlaceholderText("e.g. -111.813415")
-        self.latitude_input.editingFinished.connect(self.validate_latitude_field)
-        self.longitude_input.editingFinished.connect(self.validate_longitude_field)
-        self.latitude_input.textChanged.connect(self._handle_manual_coordinate_change)
-        self.longitude_input.textChanged.connect(self._handle_manual_coordinate_change)
-
-        self.paste_coordinates_button = QPushButton("Paste Coordinates")
-        self.paste_coordinates_button.clicked.connect(
-            self.paste_coordinates_from_clipboard
-        )
-
-        manual_source_layout.addRow("Latitude:", self.latitude_input)
-        manual_source_layout.addRow("Longitude:", self.longitude_input)
-        manual_source_layout.addRow("", self.paste_coordinates_button)
-
-        self.source_mode_stack = QStackedWidget()
-        self.source_mode_stack.addWidget(photo_source_panel)
-        self.source_mode_stack.addWidget(self.manual_source_panel)
-
-        self.active_source_coordinates = QLabel("Coordinates to Apply: Not set")
-        self.active_source_coordinates.setObjectName("sourceSummary")
-        self.active_source_coordinates.setWordWrap(True)
-
-        source_layout.addLayout(source_mode_layout)
-        source_layout.addWidget(self.source_mode_stack)
-        source_layout.addWidget(self.active_source_coordinates)
-
-        self.destination_list = QListWidget()
-        self.destination_list.setObjectName("destinationList")
-        self.destination_list.setSelectionMode(QListWidget.NoSelection)
-        self.destination_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.destination_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.destination_list.setMaximumHeight(124)
-        self.destination_list.setMinimumHeight(124)
-
-        self.destination_title_label = QLabel("Destination Files")
-        self.destination_title_label.setObjectName("sectionTitle")
-
-        # The apply button is the primary action in the panel, so give it a bit
-        # more visual weight without over-styling the UI.
-        self.apply_button = QPushButton("Apply GPS to Destination Files")
-        self.apply_button.setEnabled(False)
-        self.apply_button.setMinimumHeight(34)
-        self.apply_button.clicked.connect(self.apply_coordinates_to_selected)
-
-        layout.addWidget(inspector_title)
-        layout.addWidget(inspector_note)
-        layout.addWidget(source_group)
-        layout.addWidget(self.destination_title_label)
-        layout.addWidget(self.destination_list)
-        layout.addWidget(self.apply_button)
-        layout.addStretch(1)
-
-        self._update_source_mode_ui()
-        return panel
 
     def _build_menu_bar(self) -> None:
         """
@@ -389,232 +173,7 @@ class MainWindow(QMainWindow):
         Apply a consistent Fusion-based stylesheet so the app feels polished
         across Linux and Windows instead of inheriting platform defaults.
         """
-        self.setStyleSheet(
-            """
-            QMainWindow, QWidget#centralSurface {
-                background: #eef3f8;
-                color: #162131;
-            }
-            QMenuBar {
-                background: #f6f9fc;
-                border-bottom: 1px solid #d6dfe8;
-                padding: 4px 8px;
-            }
-            QMenuBar::item {
-                background: transparent;
-                padding: 6px 10px;
-                border-radius: 6px;
-            }
-            QMenuBar::item:selected {
-                background: #dde8f3;
-            }
-            QMenu {
-                background: #ffffff;
-                border: 1px solid #d4dde7;
-                padding: 6px;
-            }
-            QMenu::item {
-                padding: 8px 16px;
-                border-radius: 6px;
-            }
-            QMenu::item:selected {
-                background: #e4eef9;
-            }
-            QFrame#panel {
-                background: #fbfdff;
-                border: 1px solid #d6dfe8;
-                border-radius: 18px;
-            }
-            QLabel#windowTitle {
-                font-size: 28px;
-                font-weight: 700;
-                color: #102033;
-            }
-            QLabel#windowSubtitle {
-                font-size: 13px;
-                color: #556579;
-            }
-            QLabel#sectionTitle {
-                font-size: 18px;
-                font-weight: 700;
-                color: #112033;
-            }
-            QLabel#sourceFileLabel {
-                font-size: 13px;
-                font-weight: 700;
-                color: #162131;
-                min-height: 22px;
-            }
-            QLabel#sourceSummary {
-                color: #26425f;
-                background: #eef4fb;
-                border: 1px solid #d8e4f0;
-                border-radius: 10px;
-                padding: 10px 12px;
-                font-weight: 600;
-            }
-            QLabel#destinationSummary {
-                color: #28425d;
-                font-weight: 600;
-            }
-            QLabel#sectionNote {
-                color: #5a697c;
-                font-size: 12px;
-                line-height: 1.4em;
-            }
-            QLabel#sourceHint {
-                color: #617084;
-                background: #f5f8fb;
-                border: 1px dashed #ccd7e2;
-                border-radius: 12px;
-                padding: 12px 14px;
-            }
-            QLabel#metricBadge, QLabel#metricBadgeMuted {
-                padding: 8px 12px;
-                border-radius: 14px;
-                font-weight: 600;
-            }
-            QLabel#metricBadge {
-                background: #dcecff;
-                color: #0f4d91;
-                border: 1px solid #bfdbff;
-            }
-            QLabel#metricBadgeMuted {
-                background: #edf2f7;
-                color: #516174;
-                border: 1px solid #dbe3eb;
-            }
-            QPushButton {
-                background: #ffffff;
-                color: #102033;
-                border: 1px solid #cad6e2;
-                border-radius: 10px;
-                padding: 10px 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: #f3f8fe;
-                border-color: #a9bfd7;
-            }
-            QPushButton:pressed {
-                background: #e7f0fa;
-            }
-            QPushButton:disabled {
-                color: #8c9aa8;
-                background: #f5f7f9;
-                border-color: #d7dee5;
-            }
-            QPushButton#primaryButton {
-                background: #1f6feb;
-                color: white;
-                border-color: #1f6feb;
-            }
-            QPushButton#primaryButton:hover {
-                background: #165dc5;
-                border-color: #165dc5;
-            }
-            QGroupBox {
-                background: #ffffff;
-                border: 1px solid #d8e1ea;
-                border-radius: 14px;
-                margin-top: 12px;
-                padding: 14px 16px 16px 16px;
-                font-weight: 700;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 14px;
-                padding: 0 6px;
-                color: #31445a;
-            }
-            QLineEdit {
-                min-height: 36px;
-                padding: 0 12px;
-                background: #ffffff;
-                border: 1px solid #cdd8e3;
-                border-radius: 10px;
-                selection-background-color: #c8ddff;
-            }
-            QLineEdit:focus {
-                border: 1px solid #1f6feb;
-            }
-            QLabel#sourceThumbnail {
-                background: #f7fafc;
-                border: 1px solid #d8e1ea;
-                border-radius: 14px;
-                padding: 10px;
-            }
-            QRadioButton {
-                color: #23384f;
-                spacing: 8px;
-                font-weight: 600;
-            }
-            QListWidget#destinationList {
-                background: #ffffff;
-                border: 1px solid #d8e1ea;
-                border-radius: 12px;
-                padding: 8px;
-                outline: none;
-            }
-            QListWidget#thumbnailGrid {
-                background: #ffffff;
-                border: 1px solid #d8e1ea;
-                border-radius: 16px;
-                padding: 12px;
-                outline: none;
-            }
-            QListWidget#thumbnailGrid::item {
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 14px;
-                padding: 8px;
-                margin: 4px;
-            }
-            QListWidget#thumbnailGrid::item:hover {
-                background: #f4f8fc;
-                border-color: #d5e2ef;
-            }
-            QListWidget#thumbnailGrid::item:selected {
-                background: #dcebff;
-                border-color: #8cb7f0;
-                color: #0b2441;
-            }
-            QLabel#browserHint {
-                color: #617084;
-                background: #f5f8fb;
-                border: 1px dashed #ccd7e2;
-                border-radius: 12px;
-                padding: 12px 14px;
-            }
-            QLabel#statusCard {
-                border-radius: 14px;
-                padding: 14px 16px;
-                font-weight: 600;
-                border: 1px solid #d6e1ec;
-                background: #edf4fb;
-                color: #21476b;
-            }
-            QLabel#statusCard[tone="success"] {
-                background: #edf8f1;
-                color: #1d6a3d;
-                border-color: #cfe9d8;
-            }
-            QLabel#statusCard[tone="error"] {
-                background: #fff1f1;
-                color: #9d2b2b;
-                border-color: #efc8c8;
-            }
-            QLabel#statusCard[tone="info"] {
-                background: #edf4fb;
-                color: #21476b;
-                border-color: #d6e1ec;
-            }
-            QSplitter::handle {
-                background: transparent;
-                width: 10px;
-            }
-            """
-        )
+        self.setStyleSheet(APP_STYLESHEET)
         self.apply_button.setObjectName("primaryButton")
         self._update_apply_button_text()
 
@@ -666,6 +225,9 @@ class MainWindow(QMainWindow):
                 f"{self.selection_count_badge.text()} | manual source"
             )
 
+        self.select_all_button.setEnabled(loaded_count > 0)
+        self.clear_selection_button.setEnabled(selected_count > 0)
+
     def set_selected_photo_as_source(self) -> None:
         """
         Capture the currently selected single photo as the reusable GPS source.
@@ -692,7 +254,6 @@ class MainWindow(QMainWindow):
         self._refresh_source_preview(selected_item)
         self._update_source_summary()
         self._update_selection_metrics()
-        selected_item.setSelected(False)
         self.update_details_panel()
 
     def _refresh_source_preview(self, item: QListWidgetItem | None = None) -> None:
@@ -734,6 +295,36 @@ class MainWindow(QMainWindow):
         self._update_source_summary()
         self._update_selection_metrics()
         self.update_details_panel()
+
+    def _handle_manual_coordinate_input_change(
+        self,
+        text: str,
+    ) -> None:
+        """
+        Split a pasted coordinate pair across both manual input fields.
+        """
+        if self._is_splitting_manual_coordinates:
+            self._handle_manual_coordinate_change()
+            return
+
+        parsed = self.parse_coordinate_text(text)
+        if parsed is None:
+            self._handle_manual_coordinate_change()
+            return
+
+        latitude, longitude = parsed
+        self._is_splitting_manual_coordinates = True
+
+        try:
+            self.manual_source_radio.setChecked(True)
+            self.latitude_input.setText(latitude)
+            self.longitude_input.setText(longitude)
+            self.set_input_error_state(self.latitude_input, False)
+            self.set_input_error_state(self.longitude_input, False)
+        finally:
+            self._is_splitting_manual_coordinates = False
+
+        self._handle_manual_coordinate_change()
 
     def clear_source_photo(self) -> None:
         """
@@ -788,18 +379,10 @@ class MainWindow(QMainWindow):
         """
         Parse and validate the manual coordinate fields.
         """
-        latitude_text = self.latitude_input.text().strip()
-        longitude_text = self.longitude_input.text().strip()
-
-        if not latitude_text or not longitude_text:
-            return None
-
-        try:
-            latitude, longitude = validate_coordinates(latitude_text, longitude_text)
-        except ValueError:
-            return None
-
-        return latitude, longitude
+        return parse_manual_coordinates(
+            self.latitude_input.text(),
+            self.longitude_input.text(),
+        )
 
     def _get_active_source_coordinates(self) -> tuple[float, float] | None:
         """
@@ -811,6 +394,22 @@ class MainWindow(QMainWindow):
             return self.source_latitude, self.source_longitude
 
         return self._get_manual_coordinates()
+
+    def _get_destination_paths(
+        self,
+        selected_paths: list[Path] | None = None,
+    ) -> list[Path]:
+        """
+        Return selected files that should receive GPS updates.
+        """
+        if selected_paths is None:
+            selected_paths = self.get_selected_paths()
+
+        return get_destination_paths(
+            selected_paths,
+            self.photo_source_radio.isChecked(),
+            self.source_photo_path,
+        )
 
     def _update_destination_list(self, target_paths: list[Path]) -> None:
         """
@@ -824,24 +423,21 @@ class MainWindow(QMainWindow):
         """
         Return destination files that already contain GPS and would be overwritten.
         """
-        overwrite_entries: list[str] = []
+        return get_overwrite_entries(self.list_widget, target_paths)
 
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            item_path = Path(item.data(Qt.UserRole))
-            if item_path not in target_paths:
-                continue
+    def select_all_photos(self) -> None:
+        """
+        Select every photo currently shown in the thumbnail grid.
+        """
+        self.list_widget.selectAll()
+        self.update_details_panel()
 
-            latitude = item.data(Qt.UserRole + 1)
-            longitude = item.data(Qt.UserRole + 2)
-            if latitude is None or longitude is None:
-                continue
-
-            overwrite_entries.append(
-                f"{item_path.name} — {latitude:.6f}, {longitude:.6f}"
-            )
-
-        return overwrite_entries
+    def clear_photo_selection(self) -> None:
+        """
+        Clear the current thumbnail selection.
+        """
+        self.list_widget.clearSelection()
+        self.update_details_panel()
 
     def select_photos(self) -> None:
         """
@@ -955,15 +551,7 @@ class MainWindow(QMainWindow):
             paths_to_select:
                 Paths that should be re-selected if present in the list.
         """
-        wanted = {str(path) for path in paths_to_select}
-
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            item_path = item.data(Qt.UserRole)
-
-            if item_path in wanted:
-                item.setSelected(True)
-
+        reselect_paths(self.list_widget, paths_to_select)
         self._update_selection_metrics()
 
     def _build_tooltip_text(
@@ -986,10 +574,7 @@ class MainWindow(QMainWindow):
         Returns:
             Human-readable tooltip text for the thumbnail.
         """
-        if latitude is not None and longitude is not None:
-            return f"{filename}\nGPS: {latitude:.6f}, {longitude:.6f}"
-
-        return f"{filename}\nNo GPS"
+        return build_tooltip_text(filename, latitude, longitude)
 
     def show_context_menu(self, position) -> None:
         """
@@ -1068,22 +653,12 @@ class MainWindow(QMainWindow):
 
         Supported format:
             latitude, longitude
+            latitude longitude
 
         Returns:
             A tuple of string values if parsing succeeds, otherwise None.
         """
-        parts = [part.strip() for part in text.split(",")]
-
-        if len(parts) != 2:
-            return None
-
-        try:
-            float(parts[0])
-            float(parts[1])
-        except ValueError:
-            return None
-
-        return parts[0], parts[1]
+        return parse_coordinate_text(text)
 
     def set_input_error_state(self, field: QLineEdit, has_error: bool) -> None:
         """
@@ -1175,12 +750,10 @@ class MainWindow(QMainWindow):
         4. Refresh the thumbnail list so GPS values, tooltips, and badges update
         5. Restore selection and show a summary message
         """
-        target_paths = self.get_selected_paths()
+        selected_paths = self.get_selected_paths()
+        target_paths = self._get_destination_paths(selected_paths)
 
         if not target_paths:
-            return
-
-        if self.photo_source_radio.isChecked() and self.source_photo_path in target_paths:
             return
 
         if self.manual_source_radio.isChecked():
@@ -1224,41 +797,31 @@ class MainWindow(QMainWindow):
                 failed_paths.append(f"{path.name}: {exc}")
 
         self.populate_list()
-        self.reselect_paths(target_paths)
+        self.reselect_paths(selected_paths)
         self.update_details_panel()
 
     def update_details_panel(self) -> None:
         """
         Update the right side panel based on the current selection state.
         """
-        target_paths = self.get_selected_paths()
-        selected_count = len(target_paths)
+        selected_paths = self.get_selected_paths()
+        target_paths = self._get_destination_paths(selected_paths)
         self._update_selection_metrics()
         self._update_source_summary()
         self._update_destination_list(target_paths)
 
         selected_items = self.list_widget.selectedItems()
-        can_set_source = False
-        if len(selected_items) == 1:
-            selected_path = Path(selected_items[0].data(Qt.UserRole))
-            latitude = selected_items[0].data(Qt.UserRole + 1)
-            longitude = selected_items[0].data(Qt.UserRole + 2)
-            can_set_source = (
-                latitude is not None
-                and longitude is not None
-                and selected_path != self.source_photo_path
-            )
+        can_set_source = can_set_source_from_items(
+            selected_items,
+            self.source_photo_path,
+        )
 
         self.set_source_button.setEnabled(
             self.photo_source_radio.isChecked() and can_set_source
         )
         self.clear_source_button.setEnabled(self.source_photo_path is not None)
 
-        if selected_count == 0:
-            self.apply_button.setEnabled(False)
-            return
-
-        if self.photo_source_radio.isChecked() and self.source_photo_path in target_paths:
+        if not target_paths:
             self.apply_button.setEnabled(False)
             return
 

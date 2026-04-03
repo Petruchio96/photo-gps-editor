@@ -38,6 +38,8 @@ from core.photo_loader import PhotoLoader
 from core.thumbnail_loader import ThumbnailLoader
 from gui.services.coordinate_text import (
     parse_coordinate_text,
+    parse_latitude_text,
+    parse_longitude_text,
     parse_manual_coordinates,
 )
 from gui.services.selection import (
@@ -684,9 +686,13 @@ class MainWindow(QMainWindow):
             )
 
             if field is self.latitude_input:
-                field.setToolTip("Invalid latitude. Enter a number between -90 and 90")
+                field.setToolTip(
+                    "Invalid latitude. Use decimal, DMS, or DDM within -90 to 90"
+                )
             elif field is self.longitude_input:
-                field.setToolTip("Invalid longitude. Enter a number between -180 and 180")
+                field.setToolTip(
+                    "Invalid longitude. Use decimal, DMS, or DDM within -180 to 180"
+                )
         else:
             field.setStyleSheet("")
             field.setToolTip("")
@@ -707,11 +713,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            value = float(text)
-            self.set_input_error_state(
-                self.latitude_input,
-                not (-90 <= value <= 90),
-            )
+            parse_latitude_text(text)
+            self.set_input_error_state(self.latitude_input, False)
         except ValueError:
             self.set_input_error_state(self.latitude_input, True)
 
@@ -731,11 +734,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            value = float(text)
-            self.set_input_error_state(
-                self.longitude_input,
-                not (-180 <= value <= 180),
-            )
+            parse_longitude_text(text)
+            self.set_input_error_state(self.longitude_input, False)
         except ValueError:
             self.set_input_error_state(self.longitude_input, True)
 

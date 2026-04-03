@@ -98,6 +98,30 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.latitude_input.text(), "40.486325")
         self.assertEqual(self.window.longitude_input.text(), "-111.813415")
 
+    def test_manual_coordinate_pair_paste_supports_dms(self) -> None:
+        self.window.manual_source_radio.setChecked(True)
+
+        self.window.latitude_input.setText('40°42\'51"N, 74°00\'21"W')
+
+        self.assertEqual(self.window.latitude_input.text(), '40°42\'51"N')
+        self.assertEqual(self.window.longitude_input.text(), '74°00\'21"W')
+        self.assertEqual(
+            self.window._get_manual_coordinates(),
+            (40.714166666666664, -74.00583333333333),
+        )
+
+    def test_manual_coordinate_pair_paste_supports_decimal_minutes(self) -> None:
+        self.window.manual_source_radio.setChecked(True)
+
+        self.window.latitude_input.setText("40°42.850'N, 74°00.360'W")
+
+        self.assertEqual(self.window.latitude_input.text(), "40°42.850'N")
+        self.assertEqual(self.window.longitude_input.text(), "74°00.360'W")
+        self.assertEqual(
+            self.window._get_manual_coordinates(),
+            (40.714166666666664, -74.006),
+        )
+
     def test_source_can_remain_selected_without_becoming_destination(self) -> None:
         self._select_index(0)
         self.window.set_selected_photo_as_source()

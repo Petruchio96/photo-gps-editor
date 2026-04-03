@@ -95,6 +95,7 @@ Key objectives:
 - Input improvements:
   - Placeholder examples for coordinate format
   - Paste workflow provides immediate feedback
+  - Manual coordinate entry now accepts decimal degrees, Degrees Minutes Seconds, and Degrees Decimal Minutes
 
 - Workflow clarity:
   - Copy Current GPS remains in Selection section (acts on selected file)
@@ -167,6 +168,9 @@ Example:
 - Coordinate paste usability
   - FIXED by adding Paste button and parsing logic
 
+- DMS/DDM coordinate paste support
+  - FIXED by accepting Degrees Minutes Seconds and Degrees Decimal Minutes in manual input and paste workflow
+
 - GPS writing workflow
   - IMPLEMENTED and working for single and multi-file selection
 
@@ -193,11 +197,10 @@ Example:
 1. Continue right-side panel polish (visual styling and spacing)
 2. Improve GPS badge visual design (contrast / clarity)
 3. Investigate file picker orientation behavior
-
-### UI Enhancements
-
 4. Improve thumbnail layout spacing and styling
 5. Improve status / success / error presentation in the right panel
+
+### UI Enhancements
 
 ### UI Direction (Important)
 
@@ -209,15 +212,16 @@ Example:
 
 ### Editing Functionality
 
-6. Add validation feedback in UI (completed, may refine)
-7. Consider adding backup option before writing metadata
-8. Consider clear / remove GPS workflow
+8. Add validation feedback in UI (completed, may refine)
+9. Add "Are you sure" before writing new GPS and adding backup option before writing metadata
+10. Consider clear / remove GPS workflow
 
 ### Advanced Features
 
-9. Add "Clear GPS" option
-10. Add detail panel enhancements
-11. Add drag-and-drop support for loading photos
+11. Add "Clear GPS" option
+12. Add detail panel enhancements
+12. Add drag-and-drop support for loading photos
+13. Add Edit file menu with cut, copy, paste and other useful options
 
 ---
 

@@ -1,8 +1,8 @@
 # Photo GPS Editor - Project Context
 
 ## Version / Snapshot
-Last updated: 2026-03-30
-Status: Functional GUI with GPS workflow complete (thumbnails, tooltip, context menu, GPS badge, copy/paste/apply workflow, validation, UI feedback improvements)
+Last updated: 2026-04-10
+Status: Functional desktop GUI with separated source/destination workflow, redesigned UI, DMS/DDM manual entry support, overwrite confirmation, and expanded automated test coverage
 
 ## Repository
 GitHub repo: https://github.com/Petruchio96/photo-gps-editor
@@ -53,14 +53,35 @@ Key objectives:
   - Provides fallback icon for unsupported formats
   - Adds GPS badge overlay using a PNG asset
 
+### Desktop Frontend Structure
+
+- `gui/main_window.py`
+  - Coordinates desktop UI events and applies GPS workflow actions
+  - Uses helper methods for source selection, destination selection, validation, overwrite checks, and status messaging
+
+- `gui/widgets/`
+  - Builds the left browser panel and right editor panel
+  - Keeps layout construction separate from window workflow logic
+
+- `gui/services/coordinate_text.py`
+  - Parses decimal, Degrees Minutes Seconds, and Degrees Decimal Minutes coordinate text
+  - Supports clipboard/manual entry workflows
+
+- `gui/services/selection.py`
+  - Provides destination filtering and overwrite entry helpers
+
+- `gui/services/thumbnail_items.py`
+  - Builds tooltip text and restores thumbnail selection after list refreshes
+
 ---
 
 ## GUI Status
 
 ### Main Window
 
-- File selection button (multi-select supported)
+- Destination file selection button (multi-select supported)
 - Thumbnail grid (QListWidget in IconMode)
+- Source photo selection is now separate from destination photo selection
 - JPG thumbnails display correctly
 - RAW files use fallback icons
 - Portrait images now display correctly (EXIF fix applied)
@@ -69,22 +90,31 @@ Key objectives:
 ### Right Panel (Detail / Edit Panel)
 
 - Shows:
-  - number of selected files
-  - current GPS for single selection
+  - source mode selection
+  - source preview
+  - active coordinates to apply
+  - selected destination files
 - Behavior:
-  - single selection → shows GPS
-  - multiple selection → disables current GPS display and shows "(Multiple selection)"
+  - `Use Source Photo` opens a separate source-photo workflow
+  - `Enter Coordinates Manually` allows typed or pasted coordinates
 - Input fields:
   - Latitude
   - Longitude
 - Buttons:
-  - Copy Current GPS (single selection only)
-  - Paste Coordinates (splits clipboard into both fields)
-  - Apply to Selected (working)
+  - `Choose Source Photo...`
+  - `Clear Source`
+  - `Paste Coordinates`
+  - `Apply GPS to Destination Files`
+
+- Source photo workflow:
+  - Source photo can be chosen independently of loaded destination files
+  - Source preview shows thumbnail, filename, and GPS state
+  - Source photo without GPS is surfaced clearly and cannot be applied
 
 - Status messaging:
-  - Single-line status field replaces previous notes area
+  - Single-line status card replaces previous notes area
   - Displays success, error, and guidance messages
+  - Used for clipboard errors, source loading feedback, cancel flow, and apply results
 
 - Validation UX:
   - Field-level validation for latitude and longitude
@@ -98,8 +128,9 @@ Key objectives:
   - Manual coordinate entry now accepts decimal degrees, Degrees Minutes Seconds, and Degrees Decimal Minutes
 
 - Workflow clarity:
-  - Copy Current GPS remains in Selection section (acts on selected file)
-  - Paste Coordinates remains in Edit section (acts on input fields)
+  - Left side is now destination-only workflow
+  - Right side is now source/editor workflow
+  - `Select Photos` button and loaded/selected badges now live above the left pane because they belong to the destination workspace
 
 ---
 
@@ -112,12 +143,12 @@ Key objectives:
 
 ### Behavior
 
-- Selection-driven UI (no separate modes)
-- Single selection:
-  - shows current GPS
-- Multi-selection:
-  - disables current GPS display
-  - allows batch editing
+- Two-part workflow:
+  - choose where GPS comes from
+  - choose where GPS goes
+- Source and destination selection are intentionally separate
+- Destination grid is for files that receive GPS
+- Right panel is for source selection, coordinate entry, and apply actions
 
 ### Thumbnail Area
 
@@ -137,26 +168,17 @@ Key objectives:
   - copy GPS coordinates
 - GPS badge overlay:
   - shown on thumbnails with GPS data
+- Source workflow:
+  - separate source photo picker
+  - source preview card with thumbnail, filename, and GPS status
 - Copy/Paste workflow:
-  - Copy button in right panel
+  - right-click copy from thumbnails
   - Paste button auto-splits coordinates
 - Apply workflow:
   - validates coordinates
+  - confirms before overwriting existing destination GPS
   - writes GPS to selected files
   - refreshes UI afterward
-
----
-
-## GPS Copy Design
-
-- Right-click context menu on thumbnail
-- Option: "Copy GPS Coordinates"
-- Right panel copy button for single selection
-- Format:
-  latitude, longitude (decimal format)
-
-Example:
-40.486325, -111.813415
 
 ---
 
@@ -173,6 +195,15 @@ Example:
 
 - GPS writing workflow
   - IMPLEMENTED and working for single and multi-file selection
+
+- Overwrite confirmation before replacing existing GPS
+  - IMPLEMENTED for destination files that already contain coordinates
+
+- Invalid clipboard paste flow
+  - FIXED with status-card error messaging instead of crashing
+
+- Source and destination selection ambiguity
+  - IMPROVED by separating source-photo selection from destination-photo selection
 
 ---
 
@@ -194,11 +225,11 @@ Example:
 
 ### Immediate
 
-1. Continue right-side panel polish (visual styling and spacing)
-2. Improve GPS badge visual design (contrast / clarity)
-3. Investigate file picker orientation behavior
-4. Improve thumbnail layout spacing and styling
-5. Improve status / success / error presentation in the right panel
+1. Start separating workflow logic into backend-oriented service modules while preserving current UI behavior
+2. Define a clearer frontend/backend boundary so future desktop and web frontends can share the same backend workflow
+3. Improve GPS badge visual design (contrast / clarity)
+4. Investigate file picker orientation behavior
+5. Continue UI polish and spacing refinements now that the workflow model is stable
 
 ### UI Enhancements
 
@@ -210,16 +241,38 @@ Example:
   - Make UI look and feel like a professional desktop application
   - Improve styling, spacing, and visual hierarchy
 
+### Architecture Direction (Important)
+
+- Design future changes so the project has a reusable backend and a separate frontend
+- Keep workflow rules out of frontend-specific UI code whenever possible
+- Treat the current PySide6 application as the desktop frontend
+- Move toward backend services that can support:
+  - desktop GUI
+  - future web frontend
+  - containerized / Docker deployment
+- Backend should eventually own:
+  - photo loading
+  - coordinate parsing and validation
+  - source/destination workflow rules
+  - overwrite detection
+  - GPS write operations
+  - result/status models
+- Frontend should eventually own:
+  - file pickers
+  - thumbnail presentation
+  - forms, buttons, and dialogs
+  - visual status display
+  - layout and interaction flow
+
 ### Editing Functionality
 
-8. Add validation feedback in UI (completed, may refine)
-9. Add "Are you sure" before writing new GPS and adding backup option before writing metadata
-10. Consider clear / remove GPS workflow
+8. Add backup option before writing metadata
+9. Consider clear / remove GPS workflow
 
 ### Advanced Features
 
-11. Add "Clear GPS" option
-12. Add detail panel enhancements
+10. Add "Clear GPS" option
+11. Add detail panel enhancements
 12. Add drag-and-drop support for loading photos
 13. Add Edit file menu with cut, copy, paste and other useful options
 
@@ -232,7 +285,8 @@ Example:
 - GUI uses PySide6
 - Image processing uses Pillow
 - Metadata reading and writing use ExifTool
-- Right panel single-selection GPS display now uses cached latitude/longitude from the selected thumbnail item instead of reloading photo metadata
+- Run the app with the project virtual environment, not system Python, so PySide6 is available
+- Current automated coverage now includes backend helpers, GUI services, and main workflow smoke tests
 
 ---
 
@@ -243,18 +297,13 @@ The application now has:
 - Working backend for GPS reading
 - Working backend for GPS writing
 - Structured data model
-- Functional GUI with thumbnails and selection logic
-- Clean separation between UI and backend
-- Hover tooltip for GPS inspection
-- Right-click GPS copy functionality
-- GPS badge overlay support
-- Copy/Paste coordinate workflow
-- Apply-to-selected workflow
-- Field-level validation with visual feedback
-- Status messaging system in right panel
-- Correct portrait orientation in main thumbnail grid
+- Functional GUI with separate source and destination workflow
+- Modular GUI structure with window, widget, and service helpers
+- Separate source photo picker with preview card
+- Overwrite confirmation before replacing existing GPS
+- Expanded automated test coverage across core logic and GUI workflow
 
 Next phase focuses on:
-- continued right panel polish
+- beginning the frontend/backend architectural split
+- moving workflow logic into reusable backend-oriented services
 - visual improvements (badge + layout)
-- progressing toward a professional-quality UI

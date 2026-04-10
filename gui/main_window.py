@@ -42,11 +42,7 @@ from gui.services.coordinate_text import (
     parse_longitude_text,
     parse_manual_coordinates,
 )
-from gui.services.selection import (
-    can_set_source_from_items,
-    get_destination_paths,
-    get_overwrite_entries,
-)
+from gui.services.selection import get_destination_paths, get_overwrite_entries
 from gui.services.thumbnail_items import build_tooltip_text, reselect_paths
 from gui.styles import APP_STYLESHEET
 from gui.widgets.browser_panel import build_browser_panel
@@ -107,7 +103,7 @@ class MainWindow(QMainWindow):
         outer_layout.setContentsMargins(24, 24, 24, 24)
         outer_layout.setSpacing(18)
 
-        self.select_button = QPushButton("Open Photos")
+        self.select_button = QPushButton("Select Photos")
         self.select_button.clicked.connect(self.select_photos)
 
         self.loaded_count_badge = QLabel("0 loaded")
@@ -134,14 +130,7 @@ class MainWindow(QMainWindow):
         header_text_layout.addWidget(title_label)
         header_text_layout.addWidget(subtitle_label)
 
-        header_actions_layout = QHBoxLayout()
-        header_actions_layout.setSpacing(10)
-        header_actions_layout.addWidget(self.loaded_count_badge)
-        header_actions_layout.addWidget(self.selection_count_badge)
-        header_actions_layout.addWidget(self.select_button)
-
         header_layout.addLayout(header_text_layout, 1)
-        header_layout.addLayout(header_actions_layout)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -160,7 +149,7 @@ class MainWindow(QMainWindow):
         """
         file_menu = self.menuBar().addMenu("&File")
 
-        open_action = QAction("Open Photos...", self)
+        open_action = QAction("Select Photos...", self)
         open_action.triggered.connect(self.select_photos)
         file_menu.addAction(open_action)
 
@@ -191,7 +180,7 @@ class MainWindow(QMainWindow):
 
     def _update_selection_metrics(self) -> None:
         """
-        Keep the header badges in sync with the current list and selection state.
+        Keep the destination badges in sync with the current list and selection state.
         """
         loaded_count = len(self.selected_paths)
         self.loaded_count_badge.setText(
@@ -208,69 +197,66 @@ class MainWindow(QMainWindow):
 
         if loaded_count == 0:
             self.browser_hint.setText(
-                "No photos loaded yet. Use Open Photos to populate the grid."
+                "No destination photos loaded yet. Use Select Photos to populate the grid."
             )
         else:
             self.browser_hint.setText(
                 "Tip: choose a source on the right, then use Shift or Ctrl to build the destination list on the left."
             )
 
-        if self.photo_source_radio.isChecked() and self.source_photo_path is not None:
-            self.selection_count_badge.setText(
-                f"{self.selection_count_badge.text()} | source locked"
-            )
-        elif (
-            self.manual_source_radio.isChecked()
-            and self._has_valid_manual_coordinates()
-        ):
-            self.selection_count_badge.setText(
-                f"{self.selection_count_badge.text()} | manual source"
-            )
-
         self.select_all_button.setEnabled(loaded_count > 0)
         self.clear_selection_button.setEnabled(selected_count > 0)
 
-    def set_selected_photo_as_source(self) -> None:
+    def choose_source_photo(self) -> None:
         """
-        Capture the currently selected single photo as the reusable GPS source.
+        Open a file dialog and load a single photo as the GPS source.
         """
-        selected_items = self.list_widget.selectedItems()
-
-        if len(selected_items) != 1:
+        source_path = self._pick_photo_file("Choose Source Photo")
+        if source_path is None:
             return
 
-        selected_item = selected_items[0]
-        latitude = selected_item.data(Qt.UserRole + 1)
-        longitude = selected_item.data(Qt.UserRole + 2)
+        self._load_source_photo(source_path)
 
-        if latitude is None or longitude is None:
-            return
+    def _load_source_photo(self, source_path: Path) -> None:
+        """
+        Load a single source photo and cache its GPS data for apply actions.
+        """
+        info = self.loader.load_photo_info(source_path)
 
-        if self.source_photo_path == Path(selected_item.data(Qt.UserRole)):
-            return
+        self.source_photo_path = source_path
+        self.source_latitude = info.current_latitude
+        self.source_longitude = info.current_longitude
 
-        self.source_photo_path = Path(selected_item.data(Qt.UserRole))
-        self.source_latitude = latitude
-        self.source_longitude = longitude
-
-        self._refresh_source_preview(selected_item)
+        self._refresh_source_preview()
         self._update_source_summary()
-        self._update_selection_metrics()
         self.update_details_panel()
+
+        if info.gps_error:
+            self._set_status_message(
+                f"Source photo could not load GPS data: {info.gps_error}",
+                "error",
+            )
+        elif info.current_latitude is None or info.current_longitude is None:
+            self._set_status_message(
+                "Source photo loaded, but it does not contain GPS coordinates.",
+                "info",
+            )
+        else:
+            self._set_status_message(
+                "Source photo loaded and ready to apply.",
+                "success",
+            )
 
     def _refresh_source_preview(self, item: QListWidgetItem | None = None) -> None:
         """
         Refresh the source preview block using the stored source data.
         """
-        if (
-            self.source_photo_path is None
-            or self.source_latitude is None
-            or self.source_longitude is None
-        ):
+        if self.source_photo_path is None:
             self.source_preview_stack.setCurrentIndex(0)
             self.clear_source_button.setEnabled(False)
             self.source_thumbnail.clear()
             self.source_file_label.setText("No source photo selected")
+            self.source_gps_label.setText("Source GPS: Not loaded")
             return
 
         if item is None:
@@ -282,11 +268,25 @@ class MainWindow(QMainWindow):
 
         if item is not None:
             pixmap = item.icon().pixmap(160, 160)
-            self.source_thumbnail.setPixmap(pixmap)
         else:
-            self.source_thumbnail.clear()
+            icon = self.thumbnail_loader.load_icon(
+                self.source_photo_path,
+                has_gps=(
+                    self.source_latitude is not None
+                    and self.source_longitude is not None
+                ),
+            )
+            pixmap = icon.pixmap(160, 160)
+
+        self.source_thumbnail.setPixmap(pixmap)
 
         self.source_file_label.setText(self.source_photo_path.name)
+        if self.source_latitude is None or self.source_longitude is None:
+            self.source_gps_label.setText("Source GPS: Not found in this photo")
+        else:
+            self.source_gps_label.setText(
+                f"Source GPS: {self.source_latitude:.6f}, {self.source_longitude:.6f}"
+            )
         self.source_preview_stack.setCurrentIndex(1)
         self.clear_source_button.setEnabled(True)
 
@@ -339,6 +339,7 @@ class MainWindow(QMainWindow):
         self._update_source_summary()
         self._update_selection_metrics()
         self.update_details_panel()
+        self._set_status_message("Source photo cleared.", "info")
 
     def _update_apply_button_text(self) -> None:
         """
@@ -356,8 +357,12 @@ class MainWindow(QMainWindow):
         coordinates = self._get_active_source_coordinates()
 
         if self.photo_source_radio.isChecked():
-            if self.source_photo_path is None or coordinates is None:
+            if self.source_photo_path is None:
                 self.active_source_coordinates.setText("Coordinates to Apply: Not set")
+            elif coordinates is None:
+                self.active_source_coordinates.setText(
+                    "Coordinates to Apply: Source photo has no GPS"
+                )
             else:
                 self.active_source_coordinates.setText(
                     f"Coordinates to Apply: {coordinates[0]:.6f}, {coordinates[1]:.6f}"
@@ -427,6 +432,56 @@ class MainWindow(QMainWindow):
         """
         return get_overwrite_entries(self.list_widget, target_paths)
 
+    def _set_status_message(self, message: str, tone: str = "info") -> None:
+        """
+        Update the editor status card with a message and visual tone.
+        """
+        self.status_message.setText(message)
+        self.status_message.setProperty("tone", tone)
+        self.status_message.style().unpolish(self.status_message)
+        self.status_message.style().polish(self.status_message)
+        self.status_message.update()
+
+    def _default_photo_directory(self) -> Path:
+        """
+        Return the default directory used by source and destination file pickers.
+        """
+        pictures_dir = Path.home() / "Pictures"
+        return pictures_dir if pictures_dir.exists() else Path.home()
+
+    def _photo_file_filter(self) -> str:
+        """
+        Return the Qt file filter for supported image types.
+        """
+        return "Images (*.jpg *.JPG *.jpeg *.JPEG *.cr2 *.CR2 *.cr3 *.CR3 *.dng *.DNG)"
+
+    def _pick_photo_files(self, title: str) -> list[Path]:
+        """
+        Open the multi-file picker used for destination photo selection.
+        """
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            title,
+            str(self._default_photo_directory()),
+            self._photo_file_filter(),
+        )
+        return [Path(path) for path in file_paths]
+
+    def _pick_photo_file(self, title: str) -> Path | None:
+        """
+        Open the single-file picker used for the source photo workflow.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            str(self._default_photo_directory()),
+            self._photo_file_filter(),
+        )
+        if not file_path:
+            return None
+
+        return Path(file_path)
+
     def select_all_photos(self) -> None:
         """
         Select every photo currently shown in the thumbnail grid.
@@ -445,34 +500,12 @@ class MainWindow(QMainWindow):
         """
         Open a file dialog and allow user to select one or more images.
         """
-
-        # Determine a sensible default directory in a cross-platform way.
-        # Prefer the user's Pictures folder if it exists, otherwise fall back
-        # to the home directory.
-        pictures_dir = Path.home() / "Pictures"
-        start_dir = pictures_dir if pictures_dir.exists() else Path.home()
-
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Photos",
-            str(start_dir),
-            # Qt file filters on Linux are case-sensitive, so we include both
-            # lowercase and uppercase versions of each supported extension.
-            "Images (*.jpg *.JPG *.jpeg *.JPEG *.cr2 *.CR2 *.cr3 *.CR3 *.dng *.DNG)",
-        )
+        file_paths = self._pick_photo_files("Select Destination Photos")
 
         if not file_paths:
             return
 
-        self.selected_paths = [Path(p) for p in file_paths]
-
-        if self.source_photo_path not in self.selected_paths:
-            self.source_photo_path = None
-            self.source_latitude = None
-            self.source_longitude = None
-            self._refresh_source_preview()
-            self._update_apply_button_text()
-
+        self.selected_paths = file_paths
         self.populate_list()
 
     def populate_list(self) -> None:
@@ -647,6 +680,10 @@ class MainWindow(QMainWindow):
         self.set_input_error_state(self.latitude_input, False)
         self.set_input_error_state(self.longitude_input, False)
         self._update_source_summary()
+        self._set_status_message(
+            "Coordinates pasted into the manual source fields.",
+            "success",
+        )
 
     def parse_coordinate_text(self, text: str) -> tuple[str, str] | None:
         """
@@ -754,6 +791,10 @@ class MainWindow(QMainWindow):
         target_paths = self._get_destination_paths(selected_paths)
 
         if not target_paths:
+            self._set_status_message(
+                "Select one or more destination photos before applying GPS.",
+                "error",
+            )
             return
 
         if self.manual_source_radio.isChecked():
@@ -762,6 +803,16 @@ class MainWindow(QMainWindow):
 
         coordinates = self._get_active_source_coordinates()
         if coordinates is None:
+            if self.photo_source_radio.isChecked():
+                self._set_status_message(
+                    "Choose a source photo with GPS coordinates before applying.",
+                    "error",
+                )
+            else:
+                self._set_status_message(
+                    "Enter valid latitude and longitude values before applying.",
+                    "error",
+                )
             return
 
         latitude, longitude = coordinates
@@ -784,6 +835,10 @@ class MainWindow(QMainWindow):
             confirmation_dialog.setDefaultButton(QMessageBox.Cancel)
 
             if confirmation_dialog.exec() != QMessageBox.Ok:
+                self._set_status_message(
+                    "GPS write cancelled. Existing destination coordinates were left unchanged.",
+                    "info",
+                )
                 return
 
         success_count = 0
@@ -800,6 +855,22 @@ class MainWindow(QMainWindow):
         self.reselect_paths(selected_paths)
         self.update_details_panel()
 
+        if failed_paths and success_count:
+            self._set_status_message(
+                f"Updated GPS on {success_count} destination file(s). Failed: {'; '.join(failed_paths)}",
+                "error",
+            )
+        elif failed_paths:
+            self._set_status_message(
+                f"Failed to update destination files: {'; '.join(failed_paths)}",
+                "error",
+            )
+        else:
+            self._set_status_message(
+                f"Updated GPS on {success_count} destination file(s).",
+                "success",
+            )
+
     def update_details_panel(self) -> None:
         """
         Update the right side panel based on the current selection state.
@@ -809,16 +880,6 @@ class MainWindow(QMainWindow):
         self._update_selection_metrics()
         self._update_source_summary()
         self._update_destination_list(target_paths)
-
-        selected_items = self.list_widget.selectedItems()
-        can_set_source = can_set_source_from_items(
-            selected_items,
-            self.source_photo_path,
-        )
-
-        self.set_source_button.setEnabled(
-            self.photo_source_radio.isChecked() and can_set_source
-        )
         self.clear_source_button.setEnabled(self.source_photo_path is not None)
 
         if not target_paths:

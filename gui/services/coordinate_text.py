@@ -120,6 +120,21 @@ def parse_coordinate_text(text: str) -> tuple[str, str] | None:
             return None
         return parts[0], parts[1]
 
+    for match in re.finditer(r"\s+", text):
+        left = text[: match.start()].strip()
+        right = text[match.end() :].strip()
+
+        if not left or not right:
+            continue
+
+        try:
+            parse_latitude_text(left)
+            parse_longitude_text(right)
+        except ValueError:
+            continue
+
+        return left, right
+
     parts = re.findall(r"[+-]?\d+(?:\.\d+)?", text)
     if len(parts) != 2:
         return None

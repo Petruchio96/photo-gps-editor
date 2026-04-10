@@ -32,14 +32,21 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     layout.setContentsMargins(20, 20, 20, 20)
     layout.setSpacing(14)
 
-    section_heading = QLabel("Library")
+    section_heading = QLabel("Destination Photos")
     section_heading.setObjectName("sectionTitle")
 
     section_note = QLabel(
-        "Select one or many images. Right click any thumbnail to copy its current GPS coordinates."
+        "Choose the files that should receive GPS coordinates. Right click any thumbnail to copy its current GPS coordinates."
     )
     section_note.setObjectName("sectionNote")
     section_note.setWordWrap(True)
+
+    header_row = QHBoxLayout()
+    header_row.setSpacing(10)
+    header_row.addWidget(window.loaded_count_badge)
+    header_row.addWidget(window.selection_count_badge)
+    header_row.addStretch(1)
+    header_row.addWidget(window.select_button)
 
     window.list_widget = QListWidget()
     window.list_widget.setObjectName("thumbnailGrid")
@@ -67,13 +74,14 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     selection_button_row.addWidget(window.clear_selection_button)
 
     window.browser_hint = QLabel(
-        "No photos loaded yet. Use Open Photos to populate the grid."
+        "No destination photos loaded yet. Use Select Photos to populate the grid."
     )
     window.browser_hint.setObjectName("browserHint")
     window.browser_hint.setWordWrap(True)
 
     layout.addWidget(section_heading)
     layout.addWidget(section_note)
+    layout.addLayout(header_row)
     layout.addLayout(selection_button_row)
     layout.addWidget(window.list_widget, 1)
     layout.addWidget(window.browser_hint)

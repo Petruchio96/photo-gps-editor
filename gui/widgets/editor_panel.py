@@ -41,7 +41,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     inspector_title.setObjectName("sectionTitle")
 
     inspector_note = QLabel(
-        "Choose the coordinates to apply, review the destination files, and then write metadata with a clear overwrite check."
+        "Choose a source photo or enter coordinates manually, review the selected destinations, and then write metadata with a clear overwrite check."
     )
     inspector_note.setObjectName("sectionNote")
     inspector_note.setWordWrap(True)
@@ -50,7 +50,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     source_layout = QVBoxLayout(source_group)
     source_layout.setSpacing(10)
 
-    window.photo_source_radio = QRadioButton("Use Selected Photo")
+    window.photo_source_radio = QRadioButton("Use Source Photo")
     window.manual_source_radio = QRadioButton("Enter Coordinates Manually")
     window.photo_source_radio.setChecked(True)
 
@@ -72,7 +72,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     empty_source_layout.setSpacing(8)
 
     empty_source_label = QLabel(
-        "No source photo selected yet. Pick a single photo in the library, then use the button below to lock it in as the GPS source."
+        "No source photo selected yet. Choose a photo to load its thumbnail and GPS coordinates here."
     )
     empty_source_label.setObjectName("sourceHint")
     empty_source_label.setWordWrap(True)
@@ -92,7 +92,12 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.source_file_label.setObjectName("sourceFileLabel")
     window.source_file_label.setWordWrap(True)
 
+    window.source_gps_label = QLabel("Source GPS: Not loaded")
+    window.source_gps_label.setObjectName("destinationSummary")
+    window.source_gps_label.setWordWrap(True)
+
     source_preview_layout.addWidget(window.source_file_label)
+    source_preview_layout.addWidget(window.source_gps_label)
     source_preview_layout.addWidget(
         window.source_thumbnail,
         alignment=Qt.AlignCenter,
@@ -101,9 +106,8 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.source_preview_stack.addWidget(empty_source_widget)
     window.source_preview_stack.addWidget(source_preview_widget)
 
-    window.set_source_button = QPushButton("Use Selected Photo as GPS Source")
-    window.set_source_button.setEnabled(False)
-    window.set_source_button.clicked.connect(window.set_selected_photo_as_source)
+    window.choose_source_button = QPushButton("Choose Source Photo...")
+    window.choose_source_button.clicked.connect(window.choose_source_photo)
 
     window.clear_source_button = QPushButton("Clear Source")
     window.clear_source_button.setEnabled(False)
@@ -117,7 +121,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
 
     source_button_row = QHBoxLayout()
     source_button_row.setSpacing(10)
-    source_button_row.addWidget(window.set_source_button)
+    source_button_row.addWidget(window.choose_source_button)
     source_button_row.addWidget(window.clear_source_button)
     photo_source_layout.addLayout(source_button_row)
 
@@ -168,7 +172,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.destination_list.setMaximumHeight(124)
     window.destination_list.setMinimumHeight(124)
 
-    window.destination_title_label = QLabel("Destination Files")
+    window.destination_title_label = QLabel("Selected Destinations")
     window.destination_title_label.setObjectName("sectionTitle")
 
     window.apply_button = QPushButton("Apply GPS to Destination Files")
@@ -176,12 +180,18 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.apply_button.setMinimumHeight(34)
     window.apply_button.clicked.connect(window.apply_coordinates_to_selected)
 
+    window.status_message = QLabel("Choose a source and select destination photos.")
+    window.status_message.setObjectName("statusCard")
+    window.status_message.setProperty("tone", "info")
+    window.status_message.setWordWrap(True)
+
     layout.addWidget(inspector_title)
     layout.addWidget(inspector_note)
     layout.addWidget(source_group)
     layout.addWidget(window.destination_title_label)
     layout.addWidget(window.destination_list)
     layout.addWidget(window.apply_button)
+    layout.addWidget(window.status_message)
     layout.addStretch(1)
 
     window._update_source_mode_ui()

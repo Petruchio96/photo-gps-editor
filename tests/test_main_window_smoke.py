@@ -68,7 +68,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.exiftool = FakeExifTool()
         self.window.loader = FakePhotoLoader(self.gps_by_path)
         self.window.thumbnail_loader = FakeThumbnailLoader()
-        self.window.selected_paths = list(self.paths)
+        self.window.session.selected_paths = list(self.paths)
         self.window.populate_list()
 
     def tearDown(self) -> None:
@@ -216,7 +216,7 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.window.clear_source_photo()
 
-        self.assertIsNone(self.window.source_photo_path)
+        self.assertIsNone(self.window.session.source_photo_path)
         self.assertEqual(self.window.source_file_label.text(), "No source photo selected")
         self.assertEqual(self.window.source_gps_label.text(), "Source GPS: Not loaded")
 

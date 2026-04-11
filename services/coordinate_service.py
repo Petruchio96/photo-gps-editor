@@ -1,5 +1,5 @@
 """
-Helpers for parsing coordinate text entered or pasted into the GUI.
+Helpers for parsing coordinate text supplied by any frontend.
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def parse_longitude_text(text: str) -> float:
 def parse_coordinate_text(text: str) -> tuple[str, str] | None:
     """
     Parse a combined coordinate string into separate latitude and longitude
-    strings for the two input fields.
+    strings for two input fields.
     """
     text = text.strip()
     if not text:

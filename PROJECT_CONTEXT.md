@@ -1,8 +1,9 @@
 # Photo GPS Editor - Project Context
 
 ## Version / Snapshot
-Last updated: 2026-04-10
-Status: Functional desktop GUI with separated source/destination workflow, redesigned UI, DMS/DDM manual entry support, overwrite confirmation, and expanded automated test coverage
+Last updated: 2026-04-11
+Version: 1.0
+Status: Version 1 desktop application with separated source/destination workflow, reusable backend workflow/services layer, desktop presentation layer, overwrite confirmation, and expanded automated test coverage
 
 ## Repository
 GitHub repo: https://github.com/Petruchio96/photo-gps-editor
@@ -56,22 +57,30 @@ Key objectives:
 ### Desktop Frontend Structure
 
 - `gui/main_window.py`
-  - Coordinates desktop UI events and applies GPS workflow actions
-  - Uses helper methods for source selection, destination selection, validation, overwrite checks, and status messaging
+  - Acts as the desktop shell window
+  - Focuses on Qt setup, shared window concerns, and wiring frontend pieces together
 
 - `gui/widgets/`
   - Builds the left browser panel and right editor panel
   - Keeps layout construction separate from window workflow logic
 
-- `gui/services/coordinate_text.py`
-  - Parses decimal, Degrees Minutes Seconds, and Degrees Decimal Minutes coordinate text
-  - Supports clipboard/manual entry workflows
+- `gui/presenters/`
+  - Holds desktop-only presentation helpers and view-state builders
+  - Includes source preview, editor panel state, thumbnail presentation, and desktop-facing helper modules
 
-- `gui/services/selection.py`
-  - Provides destination filtering and overwrite entry helpers
+- `gui/window_mixins/`
+  - Splits large window behavior into focused desktop UI concerns
+  - Separates source/editor actions, destination list actions, and apply workflow actions
 
-- `gui/services/thumbnail_items.py`
-  - Builds tooltip text and restores thumbnail selection after list refreshes
+### Reusable Backend / Application Structure
+
+- `services/`
+  - Holds reusable workflow logic outside the PySide frontend
+  - Includes source resolution, destination rules, photo-loading/session helpers, workflow controller logic, and GPS apply orchestration
+  - Intended to support future desktop, web/API, and container-based frontends
+
+- `core/`
+  - Holds lower-level domain and infrastructure logic such as models, file support, coordinate validation, ExifTool access, metadata loading, and thumbnail generation
 
 ---
 
@@ -211,7 +220,8 @@ Key objectives:
 
 - GPS badge overlay visibility
   - Current PNG overlay works functionally
-  - Appears washed out on some thumbnails
+  - Appears washed out and low-quality on some thumbnails
+  - Next planned work item
   - Needs improved contrast or redesigned asset
 
 - Portrait orientation in file picker dialog
@@ -225,11 +235,11 @@ Key objectives:
 
 ### Immediate
 
-1. Start separating workflow logic into backend-oriented service modules while preserving current UI behavior
-2. Define a clearer frontend/backend boundary so future desktop and web frontends can share the same backend workflow
-3. Improve GPS badge visual design (contrast / clarity)
-4. Investigate file picker orientation behavior
-5. Continue UI polish and spacing refinements now that the workflow model is stable
+1. Redesign the thumbnail GPS indicator/badge so existing GPS data is clearly visible and looks polished
+2. Investigate file picker orientation behavior
+3. Continue UI polish and spacing refinements now that the workflow model is stable
+4. Consider performance improvements for file loading and thumbnail generation
+5. Explore a future API layer for web/container deployment built on the reusable `services/` backend
 
 ### UI Enhancements
 
@@ -243,21 +253,21 @@ Key objectives:
 
 ### Architecture Direction (Important)
 
-- Design future changes so the project has a reusable backend and a separate frontend
+- Version 1 now has a reusable backend-oriented services layer and a separate desktop presentation layer
 - Keep workflow rules out of frontend-specific UI code whenever possible
 - Treat the current PySide6 application as the desktop frontend
-- Move toward backend services that can support:
+- Backend services can support:
   - desktop GUI
   - future web frontend
   - containerized / Docker deployment
-- Backend should eventually own:
+- Backend currently owns or strongly centers:
   - photo loading
   - coordinate parsing and validation
   - source/destination workflow rules
   - overwrite detection
   - GPS write operations
-  - result/status models
-- Frontend should eventually own:
+  - workflow/session models
+- Frontend currently owns:
   - file pickers
   - thumbnail presentation
   - forms, buttons, and dialogs
@@ -286,7 +296,7 @@ Key objectives:
 - Image processing uses Pillow
 - Metadata reading and writing use ExifTool
 - Run the app with the project virtual environment, not system Python, so PySide6 is available
-- Current automated coverage now includes backend helpers, GUI services, and main workflow smoke tests
+- Current automated coverage now includes backend helpers, GUI presenters, workflow services, and main workflow smoke tests
 
 ---
 
@@ -298,12 +308,13 @@ The application now has:
 - Working backend for GPS writing
 - Structured data model
 - Functional GUI with separate source and destination workflow
-- Modular GUI structure with window, widget, and service helpers
+- Modular GUI structure with window shell, widgets, presenters, and window mixins
 - Separate source photo picker with preview card
 - Overwrite confirmation before replacing existing GPS
-- Expanded automated test coverage across core logic and GUI workflow
+- Reusable backend/application services separated from the desktop frontend
+- Expanded automated test coverage across backend helpers, workflow services, presenters, and GUI workflow
 
 Next phase focuses on:
-- beginning the frontend/backend architectural split
-- moving workflow logic into reusable backend-oriented services
 - visual improvements (badge + layout)
+- performance improvements for loading and thumbnail generation
+- possible API layer for future web/container deployment

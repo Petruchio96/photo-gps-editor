@@ -1,6 +1,6 @@
 import unittest
 
-from gui.services.coordinate_text import (
+from services.coordinate_service import (
     parse_coordinate_text,
     parse_latitude_text,
     parse_longitude_text,

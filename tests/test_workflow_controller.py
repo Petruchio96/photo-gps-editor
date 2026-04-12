@@ -8,7 +8,7 @@ from services.workflow_controller import (
     execute_apply_workflow,
     load_source_workflow,
     prepare_apply_workflow,
-    refresh_destination_workflow,
+    refresh_photo_workflow,
 )
 
 
@@ -34,9 +34,9 @@ class StubWriter:
 
 
 class WorkflowControllerTests(unittest.TestCase):
-    def test_refresh_destination_workflow_preserves_source_state(self) -> None:
+    def test_refresh_photo_workflow_preserves_source_state(self) -> None:
         source = Path("/tmp/source.jpg")
-        destination = Path("/tmp/destination.jpg")
+        target_photo = Path("/tmp/target-photo.jpg")
         source_info = PhotoInfo(
             path=source,
             file_type="JPG",
@@ -45,18 +45,18 @@ class WorkflowControllerTests(unittest.TestCase):
         )
         loader = StubLoader(
             {
-                destination: PhotoInfo(path=destination, file_type="JPG"),
+                target_photo: PhotoInfo(path=target_photo, file_type="JPG"),
             }
         )
         session = WorkflowSession(
-            selected_paths=[destination],
+            selected_paths=[target_photo],
             source_photo_info=source_info,
             source_photo_path=source,
         )
 
-        refreshed = refresh_destination_workflow(session, loader)
+        refreshed = refresh_photo_workflow(session, loader)
 
-        self.assertEqual(refreshed.selected_paths, [destination])
+        self.assertEqual(refreshed.selected_paths, [target_photo])
         self.assertEqual(refreshed.thumbnail_items, [])
         self.assertEqual(refreshed.source_photo_path, source)
         self.assertEqual(refreshed.source_photo_info, source_info)
@@ -94,7 +94,7 @@ class WorkflowControllerTests(unittest.TestCase):
 
     def test_prepare_apply_workflow_uses_session_state(self) -> None:
         source = Path("/tmp/source.jpg")
-        destination = Path("/tmp/destination.jpg")
+        target_photo = Path("/tmp/target-photo.jpg")
         session = WorkflowSession(
             source_photo_path=source,
             source_photo_info=PhotoInfo(
@@ -104,8 +104,8 @@ class WorkflowControllerTests(unittest.TestCase):
                 current_longitude=-111.8,
             ),
             loaded_photo_infos={
-                destination: PhotoInfo(
-                    path=destination,
+                target_photo: PhotoInfo(
+                    path=target_photo,
                     file_type="JPG",
                     current_latitude=41.0,
                     current_longitude=-112.0,
@@ -115,29 +115,29 @@ class WorkflowControllerTests(unittest.TestCase):
 
         preparation = prepare_apply_workflow(
             session=session,
-            selected_paths=[source, destination],
+            selected_paths=[source, target_photo],
             using_photo_source=True,
             latitude_text="",
             longitude_text="",
         )
 
-        self.assertEqual(preparation.target_paths, [destination])
+        self.assertEqual(preparation.target_paths, [target_photo])
         self.assertEqual(
             [entry.display_text() for entry in preparation.overwrite_entries],
-            ["destination.jpg — 41.000000, -112.000000"],
+            ["target-photo.jpg — 41.000000, -112.000000"],
         )
         self.assertEqual(preparation.coordinates, GpsCoordinates(40.5, -111.8))
 
     def test_execute_apply_workflow_refreshes_session_after_write(self) -> None:
-        destination = Path("/tmp/destination.jpg")
+        target_photo = Path("/tmp/target-photo.jpg")
         session = WorkflowSession(
-            selected_paths=[destination],
+            selected_paths=[target_photo],
             source_photo_path=Path("/tmp/source.jpg"),
         )
         loader = StubLoader(
             {
-                destination: PhotoInfo(
-                    path=destination,
+                target_photo: PhotoInfo(
+                    path=target_photo,
                     file_type="JPG",
                     current_latitude=40.5,
                     current_longitude=-111.8,
@@ -149,18 +149,18 @@ class WorkflowControllerTests(unittest.TestCase):
         result = execute_apply_workflow(
             session=session,
             preparation=ApplyPreparation(
-                target_paths=[destination],
+                target_paths=[target_photo],
                 coordinates=GpsCoordinates(40.5, -111.8),
             ),
             writer=writer,
             loader=loader,
         )
 
-        self.assertEqual(writer.calls, [(destination, 40.5, -111.8)])
+        self.assertEqual(writer.calls, [(target_photo, 40.5, -111.8)])
         self.assertEqual(result.execution_result.success_count, 1)
-        self.assertEqual(result.session.selected_paths, [destination])
+        self.assertEqual(result.session.selected_paths, [target_photo])
         self.assertEqual(result.session.source_photo_path, Path("/tmp/source.jpg"))
-        self.assertIn(destination, result.session.loaded_photo_infos)
+        self.assertIn(target_photo, result.session.loaded_photo_infos)
 
 
 if __name__ == "__main__":

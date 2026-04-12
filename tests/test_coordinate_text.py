@@ -28,6 +28,12 @@ class CoordinateTextParsingTests(unittest.TestCase):
             ('40°42\'51"N', '74°00\'21"W'),
         )
 
+    def test_parse_coordinate_text_supports_spaced_dms_with_comma(self) -> None:
+        self.assertEqual(
+            parse_coordinate_text('40° 42\' 51" N, 74° 0\' 21" W'),
+            ('40° 42\' 51" N', '74° 0\' 21" W'),
+        )
+
     def test_parse_coordinate_text_supports_plain_numeric_pairs(self) -> None:
         self.assertEqual(
             parse_coordinate_text("40.486325 -111.813415"),
@@ -37,6 +43,8 @@ class CoordinateTextParsingTests(unittest.TestCase):
     def test_parse_coordinate_text_rejects_invalid_pair(self) -> None:
         self.assertIsNone(parse_coordinate_text("40, west"))
         self.assertIsNone(parse_coordinate_text(""))
+        self.assertIsNone(parse_coordinate_text("here is some random copied text"))
+        self.assertIsNone(parse_coordinate_text("lat: 40.5, lon: -111.8"))
 
     def test_parse_manual_coordinates_requires_both_fields(self) -> None:
         self.assertIsNone(parse_manual_coordinates("", "-111.8"))

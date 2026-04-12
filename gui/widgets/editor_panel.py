@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 def build_editor_panel(window: "MainWindow") -> QWidget:
     """
-    Create the right side panel for GPS source and destination actions.
+    Create the right side panel for GPS source and selected-photo actions.
     """
     panel = QFrame()
     panel.setObjectName("panel")
@@ -41,7 +41,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     inspector_title.setObjectName("sectionTitle")
 
     inspector_note = QLabel(
-        "Choose a source photo or enter coordinates manually, review the selected destinations, and then write metadata with a clear overwrite check."
+        "Choose a source photo or enter coordinates manually, review the selected photos, and then write metadata with a clear overwrite check."
     )
     inspector_note.setObjectName("sectionNote")
     inspector_note.setWordWrap(True)
@@ -90,14 +90,10 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
 
     window.source_file_label = QLabel("No source photo selected")
     window.source_file_label.setObjectName("sourceFileLabel")
+    window.source_file_label.setAlignment(Qt.AlignCenter)
     window.source_file_label.setWordWrap(True)
 
-    window.source_gps_label = QLabel("Source GPS: Not loaded")
-    window.source_gps_label.setObjectName("destinationSummary")
-    window.source_gps_label.setWordWrap(True)
-
     source_preview_layout.addWidget(window.source_file_label)
-    source_preview_layout.addWidget(window.source_gps_label)
     source_preview_layout.addWidget(
         window.source_thumbnail,
         alignment=Qt.AlignCenter,
@@ -106,7 +102,8 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.source_preview_stack.addWidget(empty_source_widget)
     window.source_preview_stack.addWidget(source_preview_widget)
 
-    window.choose_source_button = QPushButton("Choose Source Photo...")
+    window.choose_source_button = QPushButton("Choose Source Photo")
+    window.choose_source_button.setObjectName("accentButton")
     window.choose_source_button.clicked.connect(window.choose_source_photo)
 
     window.clear_source_button = QPushButton("Clear Source")
@@ -143,20 +140,28 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
         lambda text: window._handle_manual_coordinate_input_change(text)
     )
 
-    window.paste_coordinates_button = QPushButton("Paste Coordinates")
+    window.clear_manual_coordinates_button = QPushButton("Clear Coordinates")
+    window.clear_manual_coordinates_button.setEnabled(False)
+    window.clear_manual_coordinates_button.clicked.connect(
+        window.clear_manual_coordinates
+    )
+
+    window.paste_coordinates_button = QPushButton("Paste Coordinates from Clipboard")
+    window.paste_coordinates_button.setObjectName("accentButton")
     window.paste_coordinates_button.clicked.connect(
         window.paste_coordinates_from_clipboard
     )
 
     manual_source_layout.addRow("Latitude:", window.latitude_input)
     manual_source_layout.addRow("Longitude:", window.longitude_input)
+    manual_source_layout.addRow("", window.clear_manual_coordinates_button)
     manual_source_layout.addRow("", window.paste_coordinates_button)
 
     window.source_mode_stack = QStackedWidget()
     window.source_mode_stack.addWidget(photo_source_panel)
     window.source_mode_stack.addWidget(window.manual_source_panel)
 
-    window.active_source_coordinates = QLabel("Coordinates to Apply: Not set")
+    window.active_source_coordinates = QLabel("Source GPS Coordinates: Not set")
     window.active_source_coordinates.setObjectName("sourceSummary")
     window.active_source_coordinates.setWordWrap(True)
 
@@ -164,23 +169,27 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     source_layout.addWidget(window.source_mode_stack)
     source_layout.addWidget(window.active_source_coordinates)
 
-    window.destination_list = QListWidget()
-    window.destination_list.setObjectName("destinationList")
-    window.destination_list.setSelectionMode(QListWidget.NoSelection)
-    window.destination_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-    window.destination_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    window.destination_list.setMaximumHeight(124)
-    window.destination_list.setMinimumHeight(124)
+    window.selected_photos_list = QListWidget()
+    window.selected_photos_list.setObjectName("selectedPhotosList")
+    window.selected_photos_list.setSelectionMode(QListWidget.NoSelection)
+    window.selected_photos_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    window.selected_photos_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    window.selected_photos_list.setMaximumHeight(124)
+    window.selected_photos_list.setMinimumHeight(124)
 
-    window.destination_title_label = QLabel("Selected Destinations")
-    window.destination_title_label.setObjectName("sectionTitle")
+    window.selected_photos_title_label = QLabel(
+        "Selected Photos to Change GPS Coordinates"
+    )
+    window.selected_photos_title_label.setObjectName("sectionTitle")
 
-    window.apply_button = QPushButton("Apply GPS to Destination Files")
+    window.apply_button = QPushButton("Apply New GPS Coordinates to Selected Files")
+    window.apply_button.setObjectName("applyButton")
+    window.apply_button.setProperty("tone", "safe")
     window.apply_button.setEnabled(False)
     window.apply_button.setMinimumHeight(34)
     window.apply_button.clicked.connect(window.apply_coordinates_to_selected)
 
-    window.status_message = QLabel("Choose a source and select destination photos.")
+    window.status_message = QLabel("Choose a source and select photos to update.")
     window.status_message.setObjectName("statusCard")
     window.status_message.setProperty("tone", "info")
     window.status_message.setWordWrap(True)
@@ -188,8 +197,8 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     layout.addWidget(inspector_title)
     layout.addWidget(inspector_note)
     layout.addWidget(source_group)
-    layout.addWidget(window.destination_title_label)
-    layout.addWidget(window.destination_list)
+    layout.addWidget(window.selected_photos_title_label)
+    layout.addWidget(window.selected_photos_list)
     layout.addWidget(window.apply_button)
     layout.addWidget(window.status_message)
     layout.addStretch(1)

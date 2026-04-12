@@ -1,5 +1,5 @@
 """
-Use-case services for applying GPS coordinates to destination files.
+Use-case services for applying GPS coordinates to target files.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from core.models import PhotoInfo
-from services.destination_service import get_destination_paths, get_overwrite_entries
+from services.target_paths_service import get_overwrite_entries, get_target_paths
 from services.models import ApplyExecutionResult, ApplyPreparation, SourceResolution
 
 
@@ -23,7 +23,7 @@ def prepare_apply_gps(
     """
     Validate the current workflow state before attempting to write metadata.
     """
-    target_paths = get_destination_paths(
+    target_paths = get_target_paths(
         selected_paths,
         using_photo_source,
         source_photo_path,
@@ -32,7 +32,7 @@ def prepare_apply_gps(
     if not target_paths:
         return ApplyPreparation(
             target_paths=[],
-            error_message="Select one or more destination photos before applying GPS.",
+            error_message="Select one or more photos before applying GPS.",
         )
 
     if source_resolution.coordinates is None:

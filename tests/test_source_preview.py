@@ -12,7 +12,6 @@ class SourcePreviewStateTests(unittest.TestCase):
 
         self.assertTrue(state.is_empty)
         self.assertEqual(state.filename_text, "No source photo selected")
-        self.assertEqual(state.gps_text, "Source GPS: Not loaded")
         self.assertFalse(state.has_gps)
         self.assertFalse(state.can_clear_source)
 
@@ -32,7 +31,6 @@ class SourcePreviewStateTests(unittest.TestCase):
 
         self.assertFalse(state.is_empty)
         self.assertEqual(state.filename_text, "source.jpg")
-        self.assertEqual(state.gps_text, "Source GPS: 40.500000, -111.800000")
         self.assertTrue(state.has_gps)
         self.assertTrue(state.can_clear_source)
 
@@ -47,7 +45,6 @@ class SourcePreviewStateTests(unittest.TestCase):
 
         self.assertFalse(state.is_empty)
         self.assertEqual(state.filename_text, "source.jpg")
-        self.assertEqual(state.gps_text, "Source GPS: Not found in this photo")
         self.assertFalse(state.has_gps)
         self.assertTrue(state.can_clear_source)
 

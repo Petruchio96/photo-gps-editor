@@ -8,7 +8,8 @@ import re
 
 from core.coordinates import validate_latitude, validate_longitude
 
-_PAIR_SEPARATOR_PATTERN = re.compile(r"\s*,\s*|\s+(?=[NSEW])", re.IGNORECASE)
+_PAIR_SEPARATOR_PATTERN = re.compile(r"\s*,\s*", re.IGNORECASE)
+_ALLOWED_PAIR_CHARACTERS_PATTERN = re.compile(r'^[0-9NSEWnsew+\-.,\s°\'"’′”″]+$')
 _SINGLE_COORDINATE_PATTERN = re.compile(
     r"""
     ^\s*
@@ -102,6 +103,22 @@ def parse_longitude_text(text: str) -> float:
     return _parse_coordinate_value(text, is_latitude=False)
 
 
+def _could_be_coordinate_pair(text: str) -> bool:
+    """
+    Cheap filter for obviously invalid combined coordinate text.
+    """
+    if len(text) > 100:
+        return False
+
+    if text.count(",") > 1:
+        return False
+
+    if len(re.findall(r"\d", text)) < 2:
+        return False
+
+    return _ALLOWED_PAIR_CHARACTERS_PATTERN.match(text) is not None
+
+
 def parse_coordinate_text(text: str) -> tuple[str, str] | None:
     """
     Parse a combined coordinate string into separate latitude and longitude
@@ -109,6 +126,9 @@ def parse_coordinate_text(text: str) -> tuple[str, str] | None:
     """
     text = text.strip()
     if not text:
+        return None
+
+    if not _could_be_coordinate_pair(text):
         return None
 
     parts = [part.strip() for part in _PAIR_SEPARATOR_PATTERN.split(text) if part.strip()]
@@ -119,6 +139,22 @@ def parse_coordinate_text(text: str) -> tuple[str, str] | None:
         except ValueError:
             return None
         return parts[0], parts[1]
+
+    for direction in ("N", "S"):
+        for match in re.finditer(rf"(?i){direction}\b", text):
+            left = text[: match.end()].strip(" ,")
+            right = text[match.end() :].strip(" ,")
+
+            if not left or not right:
+                continue
+
+            try:
+                parse_latitude_text(left)
+                parse_longitude_text(right)
+            except ValueError:
+                continue
+
+            return left, right
 
     for match in re.finditer(r"\s+", text):
         left = text[: match.start()].strip()

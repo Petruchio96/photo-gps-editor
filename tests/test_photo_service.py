@@ -3,10 +3,10 @@ from pathlib import Path
 
 from core.models import PhotoInfo
 from services.photo_service import (
-    refresh_destination_session,
     index_photo_infos,
-    load_destination_photo_infos,
     load_source_photo_info,
+    load_selected_photo_infos,
+    refresh_photo_session,
 )
 
 
@@ -21,7 +21,7 @@ class StubLoader:
 
 
 class PhotoServiceTests(unittest.TestCase):
-    def test_load_destination_photo_infos_preserves_input_order(self) -> None:
+    def test_load_selected_photo_infos_preserves_input_order(self) -> None:
         first = Path("/tmp/first.jpg")
         second = Path("/tmp/second.jpg")
         loader = StubLoader(
@@ -31,7 +31,7 @@ class PhotoServiceTests(unittest.TestCase):
             }
         )
 
-        loaded = load_destination_photo_infos([first, second], loader)
+        loaded = load_selected_photo_infos([first, second], loader)
 
         self.assertEqual([info.path for info in loaded], [first, second])
         self.assertEqual(loader.calls, [first, second])
@@ -60,7 +60,7 @@ class PhotoServiceTests(unittest.TestCase):
         self.assertEqual(loaded, expected)
         self.assertEqual(loader.calls, [source])
 
-    def test_refresh_destination_session_builds_consistent_state(self) -> None:
+    def test_refresh_photo_session_builds_consistent_state(self) -> None:
         first = Path("/tmp/first.jpg")
         second = Path("/tmp/second.jpg")
         loader = StubLoader(
@@ -75,7 +75,7 @@ class PhotoServiceTests(unittest.TestCase):
             }
         )
 
-        session = refresh_destination_session([first, second], loader)
+        session = refresh_photo_session([first, second], loader)
 
         self.assertEqual(session.selected_paths, [first, second])
         self.assertEqual([info.path for info in session.loaded_photos], [first, second])

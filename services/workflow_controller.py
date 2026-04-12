@@ -14,21 +14,21 @@ from services.models import (
     WorkflowMessage,
     WorkflowSession,
 )
-from services.photo_service import load_source_photo_info, refresh_destination_session
+from services.photo_service import load_source_photo_info, refresh_photo_session
 from services.source_service import resolve_active_source
 
 
-def refresh_destination_workflow(
+def refresh_photo_workflow(
     session: WorkflowSession,
     loader,
 ) -> WorkflowSession:
     """
-    Refresh the destination portion of the workflow while preserving source state.
+    Refresh the selected-photo portion of the workflow while preserving source state.
     """
-    destination_session = refresh_destination_session(session.selected_paths, loader)
-    destination_session.source_photo_info = session.source_photo_info
-    destination_session.source_photo_path = session.source_photo_path
-    return destination_session
+    photo_session = refresh_photo_session(session.selected_paths, loader)
+    photo_session.source_photo_info = session.source_photo_info
+    photo_session.source_photo_path = session.source_photo_path
+    return photo_session
 
 
 def load_source_workflow(
@@ -113,7 +113,7 @@ def execute_apply_workflow(
     loader,
 ) -> ApplyWorkflowResult:
     """
-    Execute an apply action and refresh destination state afterward.
+    Execute an apply action and refresh selected-photo state afterward.
     """
     coordinates = preparation.coordinates
     if coordinates is None:
@@ -125,7 +125,7 @@ def execute_apply_workflow(
         longitude=coordinates.longitude,
         writer=writer,
     )
-    refreshed_session = refresh_destination_workflow(session, loader)
+    refreshed_session = refresh_photo_workflow(session, loader)
     return ApplyWorkflowResult(
         session=refreshed_session,
         execution_result=execution_result,

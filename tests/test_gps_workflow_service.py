@@ -18,7 +18,7 @@ class StubWriter:
 
 
 class GpsWorkflowServiceTests(unittest.TestCase):
-    def test_prepare_apply_gps_rejects_empty_destination_selection(self) -> None:
+    def test_prepare_apply_gps_rejects_empty_photo_selection(self) -> None:
         preparation = prepare_apply_gps(
             selected_paths=[],
             using_photo_source=False,
@@ -31,7 +31,7 @@ class GpsWorkflowServiceTests(unittest.TestCase):
 
         self.assertEqual(
             preparation.error_message,
-            "Select one or more destination photos before applying GPS.",
+            "Select one or more photos before applying GPS.",
         )
 
     def test_prepare_apply_gps_collects_overwrite_entries(self) -> None:

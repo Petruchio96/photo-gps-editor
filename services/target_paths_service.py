@@ -1,5 +1,5 @@
 """
-Workflow helpers for determining destination files and overwrite warnings.
+Workflow helpers for determining target files and overwrite warnings.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from core.models import GpsCoordinates, PhotoInfo
 from services.models import OverwriteEntry
 
 
-def get_destination_paths(
+def get_target_paths(
     selected_paths: list[Path],
     using_photo_source: bool,
     source_photo_path: Path | None,
@@ -30,7 +30,7 @@ def get_overwrite_entries(
     target_paths: list[Path],
 ) -> list[OverwriteEntry]:
     """
-    Return destination files that already contain GPS and would be overwritten.
+    Return target files that already contain GPS and would be overwritten.
     """
     overwrite_entries: list[OverwriteEntry] = []
 

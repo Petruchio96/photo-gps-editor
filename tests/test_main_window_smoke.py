@@ -10,7 +10,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core.models import PhotoInfo
-from gui.main_window import MainWindow
+from gui.main_window import APP_VERSION, MainWindow
 
 
 class FakeExifTool:
@@ -56,8 +56,8 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.source_path = Path("/tmp/source.jpg")
         self.paths = [
-            Path("/tmp/destination-one.jpg"),
-            Path("/tmp/destination-two.jpg"),
+            Path("/tmp/photo-one.jpg"),
+            Path("/tmp/photo-two.jpg"),
         ]
         self.gps_by_path = {
             self.source_path: (40.486325, -111.813415),
@@ -91,20 +91,52 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def test_window_builds_expected_panels(self) -> None:
         self.assertIsNotNone(self.window.list_widget)
-        self.assertIsNotNone(self.window.destination_list)
+        self.assertIsNotNone(self.window.selected_photos_list)
         self.assertIsNotNone(self.window.select_all_button)
         self.assertIsNotNone(self.window.apply_button)
         self.assertIsNotNone(self.window.choose_source_button)
+        self.assertEqual(self.window.choose_source_button.text(), "Choose Source Photo")
+        self.assertEqual(self.window.choose_source_button.objectName(), "accentButton")
+        self.assertIsNotNone(self.window.clear_manual_coordinates_button)
         self.assertIsNotNone(self.window.status_message)
+        self.assertIsNotNone(self.window.about_action)
+        self.assertEqual(
+            self.window.paste_coordinates_button.text(),
+            "Paste Coordinates from Clipboard",
+        )
+        self.assertEqual(self.window.paste_coordinates_button.objectName(), "accentButton")
 
-    def test_initial_status_and_destination_controls_match_new_flow(self) -> None:
-        self.assertEqual(self.window.select_button.text(), "Select Photos")
+    def test_initial_status_and_photo_selection_controls_match_new_flow(self) -> None:
+        self.assertEqual(
+            self.window.select_button.text(),
+            "Choose Photos",
+        )
         self.assertEqual(
             self.window.status_message.text(),
-            "Choose a source and select destination photos.",
+            "Choose a source and select photos to update.",
         )
-        self.assertEqual(self.window.loaded_count_badge.text(), "2 loaded")
-        self.assertEqual(self.window.selection_count_badge.text(), "No selection")
+        self.assertEqual(self.window.open_action.text(), "Choose Photos...")
+        self.assertEqual(self.window.select_button.objectName(), "accentButton")
+        self.assertEqual(
+            self.window.selected_photos_title_label.text(),
+            "Selected Photos to Change GPS Coordinates",
+        )
+        self.assertEqual(
+            self.window.apply_button.text(),
+            "Apply New GPS Coordinates to Selected Files",
+        )
+        self.assertEqual(self.window.apply_button.objectName(), "applyButton")
+        self.assertEqual(self.window.apply_button.property("tone"), "safe")
+
+    def test_about_action_opens_versioned_dialog(self) -> None:
+        with patch("gui.main_window.QMessageBox.about") as about_dialog:
+            self.window.show_about_dialog()
+
+        about_dialog.assert_called_once()
+        _, title, text = about_dialog.call_args.args
+        self.assertIn(APP_VERSION, title)
+        self.assertIn("Photo GPS Editor", text)
+        self.assertIn(APP_VERSION, text)
 
     def test_select_all_and_clear_selection_buttons_work(self) -> None:
         self.window.select_all_photos()
@@ -133,6 +165,18 @@ class MainWindowSmokeTests(unittest.TestCase):
             (40.714166666666664, -74.00583333333333),
         )
 
+    def test_manual_coordinate_pair_paste_supports_spaced_dms(self) -> None:
+        self.window.manual_source_radio.setChecked(True)
+
+        self.window.latitude_input.setText('40° 42\' 51" N, 74° 0\' 21" W')
+
+        self.assertEqual(self.window.latitude_input.text(), '40° 42\' 51" N')
+        self.assertEqual(self.window.longitude_input.text(), '74° 0\' 21" W')
+        self._assert_coordinates_almost_equal(
+            self.window._get_manual_coordinates(),
+            (40.714166666666664, -74.00583333333333),
+        )
+
     def test_manual_coordinate_pair_paste_supports_decimal_minutes(self) -> None:
         self.window.manual_source_radio.setChecked(True)
 
@@ -145,19 +189,35 @@ class MainWindowSmokeTests(unittest.TestCase):
             (40.714166666666664, -74.006),
         )
 
-    def test_separate_source_photo_can_drive_destination_selection(self) -> None:
+    def test_separate_source_photo_can_drive_selected_photo_list(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
 
-        target_paths = self.window._get_destination_paths()
+        target_paths = self.window._get_target_paths()
 
         self.assertEqual(target_paths, self.paths)
-        self.assertEqual(self.window.destination_list.count(), len(self.paths))
+        self.assertEqual(self.window.selected_photos_list.count(), len(self.paths))
         self.assertTrue(self.window.apply_button.isEnabled())
         self.assertEqual(self.window.source_file_label.text(), "source.jpg")
-        self.assertIn("40.486325", self.window.source_gps_label.text())
+        self.assertEqual(
+            self.window.source_file_label.alignment(),
+            Qt.AlignCenter,
+        )
+        self.assertIn(
+            "Source GPS Coordinates: 40.486325, -111.813415",
+            self.window.active_source_coordinates.text(),
+        )
+        self.assertEqual(self.window.apply_button.property("tone"), "safe")
 
-    def test_apply_uses_separate_source_photo_for_destinations(self) -> None:
+    def test_apply_button_warns_when_selected_photo_already_has_gps(self) -> None:
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window._load_source_photo(self.source_path)
+        self.window.select_all_photos()
+
+        self.assertEqual(self.window.apply_button.property("tone"), "warning")
+
+    def test_apply_uses_separate_source_photo_for_selected_files(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
         self.window.apply_coordinates_to_selected()
@@ -171,7 +231,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.status_message.text(),
-            "Updated GPS on 2 destination file(s).",
+            "Updated GPS on 2 selected file(s).",
         )
 
     def test_apply_cancels_when_overwrite_confirmation_is_rejected(self) -> None:
@@ -218,7 +278,6 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertIsNone(self.window.session.source_photo_path)
         self.assertEqual(self.window.source_file_label.text(), "No source photo selected")
-        self.assertEqual(self.window.source_gps_label.text(), "Source GPS: Not loaded")
 
     def test_source_photo_without_gps_disables_apply(self) -> None:
         no_gps_source = Path("/tmp/source-no-gps.jpg")
@@ -232,6 +291,7 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def test_invalid_clipboard_paste_sets_error_status_without_crashing(self) -> None:
         QApplication.clipboard().setText("not coordinates")
+        self.assertFalse(self.window.paste_coordinates_button.isEnabled())
 
         self.window.paste_coordinates_from_clipboard()
 
@@ -239,21 +299,43 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def test_valid_clipboard_paste_sets_manual_source_and_status(self) -> None:
         QApplication.clipboard().setText("40.486325, -111.813415")
+        self.assertTrue(self.window.paste_coordinates_button.isEnabled())
 
         self.window.paste_coordinates_from_clipboard()
 
         self.assertTrue(self.window.manual_source_radio.isChecked())
         self.assertEqual(self.window.latitude_input.text(), "40.486325")
         self.assertEqual(self.window.longitude_input.text(), "-111.813415")
+        self.assertTrue(self.window.clear_manual_coordinates_button.isEnabled())
         self.assertIn("pasted", self.window.status_message.text().lower())
 
-    def test_apply_requires_destination_selection(self) -> None:
+    def test_paste_button_is_disabled_when_clipboard_is_empty(self) -> None:
+        QApplication.clipboard().setText("")
+
+        self.assertFalse(self.window.paste_coordinates_button.isEnabled())
+
+    def test_clear_manual_coordinates_button_disables_when_fields_are_blank(self) -> None:
+        self.window.manual_source_radio.setChecked(True)
+
+        self.assertFalse(self.window.clear_manual_coordinates_button.isEnabled())
+
+        self.window.latitude_input.setText("40.486325")
+
+        self.assertTrue(self.window.clear_manual_coordinates_button.isEnabled())
+
+        self.window.clear_manual_coordinates()
+
+        self.assertEqual(self.window.latitude_input.text(), "")
+        self.assertEqual(self.window.longitude_input.text(), "")
+        self.assertFalse(self.window.clear_manual_coordinates_button.isEnabled())
+
+    def test_apply_requires_photo_selection(self) -> None:
         self.window._load_source_photo(self.source_path)
 
         self.window.apply_coordinates_to_selected()
 
         self.assertEqual(self.window.exiftool.writes, [])
-        self.assertIn("select one or more destination", self.window.status_message.text().lower())
+        self.assertIn("select one or more photos", self.window.status_message.text().lower())
 
     def test_apply_requires_valid_manual_coordinates(self) -> None:
         self.window.manual_source_radio.setChecked(True)
@@ -278,7 +360,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             [(self.paths[0], 40.486325, -111.813415)],
         )
         self.assertIn("Failed", self.window.status_message.text())
-        self.assertIn("destination-two.jpg: disk full", self.window.status_message.text())
+        self.assertIn("photo-two.jpg: disk full", self.window.status_message.text())
 
 
 if __name__ == "__main__":

@@ -65,10 +65,6 @@ QLabel#sourceSummary {
     padding: 10px 12px;
     font-weight: 600;
 }
-QLabel#destinationSummary {
-    color: #28425d;
-    font-weight: 600;
-}
 QLabel#sectionNote {
     color: #5a697c;
     font-size: 12px;
@@ -80,21 +76,6 @@ QLabel#sourceHint {
     border: 1px dashed #ccd7e2;
     border-radius: 12px;
     padding: 12px 14px;
-}
-QLabel#metricBadge, QLabel#metricBadgeMuted {
-    padding: 8px 12px;
-    border-radius: 14px;
-    font-weight: 600;
-}
-QLabel#metricBadge {
-    background: #dcecff;
-    color: #0f4d91;
-    border: 1px solid #bfdbff;
-}
-QLabel#metricBadgeMuted {
-    background: #edf2f7;
-    color: #516174;
-    border: 1px solid #dbe3eb;
 }
 QPushButton {
     background: #ffffff;
@@ -116,14 +97,52 @@ QPushButton:disabled {
     background: #f5f7f9;
     border-color: #d7dee5;
 }
-QPushButton#primaryButton {
+QPushButton#accentButton {
+    background: #d97706;
+    color: white;
+    border: 1px solid #d97706;
+    padding: 12px 18px;
+}
+QPushButton#accentButton:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
+}
+QPushButton#accentButton:hover {
+    background: #b85f00;
+    border-color: #b85f00;
+}
+QPushButton#accentButton:pressed {
+    background: #9a4f00;
+    border-color: #9a4f00;
+}
+QPushButton#applyButton[tone="safe"] {
     background: #1f6feb;
     color: white;
     border-color: #1f6feb;
 }
-QPushButton#primaryButton:hover {
+QPushButton#applyButton[tone="safe"]:disabled,
+QPushButton#applyButton[tone="warning"]:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
+}
+QPushButton#applyButton[tone="safe"]:hover {
     background: #165dc5;
     border-color: #165dc5;
+}
+QPushButton#applyButton[tone="warning"] {
+    background: #c24141;
+    color: white;
+    border-color: #c24141;
+}
+QPushButton#applyButton[tone="warning"]:hover {
+    background: #a83333;
+    border-color: #a83333;
+}
+QPushButton#applyButton[tone="warning"]:pressed {
+    background: #8f2a2a;
+    border-color: #8f2a2a;
 }
 QGroupBox {
     background: #ffffff;
@@ -161,7 +180,7 @@ QRadioButton {
     spacing: 8px;
     font-weight: 600;
 }
-QListWidget#destinationList {
+QListWidget#selectedPhotosList {
     background: #ffffff;
     border: 1px solid #d8e1ea;
     border-radius: 12px;

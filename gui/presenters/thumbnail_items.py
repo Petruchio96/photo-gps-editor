@@ -38,7 +38,7 @@ def build_thumbnail_item_data_list(
     photo_infos: list[PhotoInfo],
 ) -> list[ThumbnailItemData]:
     """
-    Build thumbnail presentation data for the current destination workspace.
+    Build thumbnail presentation data for the current selected-photo workspace.
     """
     return [build_thumbnail_item_data(photo_info) for photo_info in photo_infos]
 

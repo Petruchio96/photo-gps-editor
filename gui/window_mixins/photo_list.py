@@ -7,10 +7,10 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QListWidgetItem, QMenu
 
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list, reselect_paths
-from services.workflow_controller import refresh_destination_workflow
+from services.workflow_controller import refresh_photo_workflow
 
 
-class DestinationListMixin:
+class PhotoListMixin:
     def select_all_photos(self) -> None:
         self.list_widget.selectAll()
         self.update_details_panel()
@@ -20,7 +20,7 @@ class DestinationListMixin:
         self.update_details_panel()
 
     def select_photos(self) -> None:
-        file_paths = self._pick_photo_files("Select Destination Photos")
+        file_paths = self._pick_photo_files("Choose Photos")
 
         if not file_paths:
             return
@@ -29,16 +29,16 @@ class DestinationListMixin:
         self.populate_list()
 
     def populate_list(self) -> None:
-        self.session = refresh_destination_workflow(
+        self.session = refresh_photo_workflow(
             self.session,
             self.loader,
         )
         self.session.thumbnail_items = build_thumbnail_item_data_list(
             self.session.loaded_photos
         )
-        self._render_destination_list()
+        self._render_photo_list()
 
-    def _render_destination_list(self) -> None:
+    def _render_photo_list(self) -> None:
         self.list_widget.clear()
 
         for item_data in self.session.thumbnail_items:

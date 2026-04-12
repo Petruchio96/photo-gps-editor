@@ -2,25 +2,25 @@ import unittest
 from pathlib import Path
 
 from core.models import PhotoInfo
-from services.destination_service import get_destination_paths, get_overwrite_entries
+from services.target_paths_service import get_overwrite_entries, get_target_paths
 
 
-class DestinationServiceTests(unittest.TestCase):
-    def test_get_destination_paths_excludes_source_only_when_needed(self) -> None:
+class TargetPathsServiceTests(unittest.TestCase):
+    def test_get_target_paths_excludes_source_only_when_needed(self) -> None:
         source = Path("/tmp/source.jpg")
-        destinations = [source, Path("/tmp/one.jpg"), Path("/tmp/two.jpg")]
+        target_paths = [source, Path("/tmp/one.jpg"), Path("/tmp/two.jpg")]
 
         self.assertEqual(
-            get_destination_paths(destinations, True, source),
+            get_target_paths(target_paths, True, source),
             [Path("/tmp/one.jpg"), Path("/tmp/two.jpg")],
         )
         self.assertEqual(
-            get_destination_paths(destinations, False, source),
-            destinations,
+            get_target_paths(target_paths, False, source),
+            target_paths,
         )
         self.assertEqual(
-            get_destination_paths(destinations, True, None),
-            destinations,
+            get_target_paths(target_paths, True, None),
+            target_paths,
         )
 
     def test_get_overwrite_entries_formats_only_target_items_with_gps(self) -> None:

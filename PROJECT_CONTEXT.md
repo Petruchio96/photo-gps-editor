@@ -3,7 +3,7 @@
 ## Version / Snapshot
 Last updated: 2026-04-11
 Version: 1.0
-Status: Version 1 desktop application with separated source/destination workflow, reusable backend workflow/services layer, desktop presentation layer, overwrite confirmation, and expanded automated test coverage
+Status: Version 1 desktop application with separated source/selected-photo workflow, reusable backend workflow/services layer, desktop presentation layer, overwrite confirmation, and expanded automated test coverage
 
 ## Repository
 GitHub repo: https://github.com/Petruchio96/photo-gps-editor
@@ -70,13 +70,13 @@ Key objectives:
 
 - `gui/window_mixins/`
   - Splits large window behavior into focused desktop UI concerns
-  - Separates source/editor actions, destination list actions, and apply workflow actions
+  - Separates source/editor actions, photo-list actions, and apply workflow actions
 
 ### Reusable Backend / Application Structure
 
 - `services/`
   - Holds reusable workflow logic outside the PySide frontend
-  - Includes source resolution, destination rules, photo-loading/session helpers, workflow controller logic, and GPS apply orchestration
+  - Includes source resolution, target-file rules, photo-loading/session helpers, workflow controller logic, and GPS apply orchestration
   - Intended to support future desktop, web/API, and container-based frontends
 
 - `core/`
@@ -88,9 +88,9 @@ Key objectives:
 
 ### Main Window
 
-- Destination file selection button (multi-select supported)
+- Photo selection button (multi-select supported)
 - Thumbnail grid (QListWidget in IconMode)
-- Source photo selection is now separate from destination photo selection
+- Source photo selection is now separate from the selected-photo list
 - JPG thumbnails display correctly
 - RAW files use fallback icons
 - Portrait images now display correctly (EXIF fix applied)
@@ -102,7 +102,7 @@ Key objectives:
   - source mode selection
   - source preview
   - active coordinates to apply
-  - selected destination files
+  - selected files to update
 - Behavior:
   - `Use Source Photo` opens a separate source-photo workflow
   - `Enter Coordinates Manually` allows typed or pasted coordinates
@@ -110,13 +110,13 @@ Key objectives:
   - Latitude
   - Longitude
 - Buttons:
-  - `Choose Source Photo...`
+  - `Choose Source Photo`
   - `Clear Source`
-  - `Paste Coordinates`
-  - `Apply GPS to Destination Files`
+  - `Paste Coordinates from Clipboard`
+  - `Apply New GPS Coordinates to Selected Files`
 
 - Source photo workflow:
-  - Source photo can be chosen independently of loaded destination files
+  - Source photo can be chosen independently of loaded photos
   - Source preview shows thumbnail, filename, and GPS state
   - Source photo without GPS is surfaced clearly and cannot be applied
 
@@ -137,9 +137,9 @@ Key objectives:
   - Manual coordinate entry now accepts decimal degrees, Degrees Minutes Seconds, and Degrees Decimal Minutes
 
 - Workflow clarity:
-  - Left side is now destination-only workflow
+  - Left side is now selected-photo workflow
   - Right side is now source/editor workflow
-  - `Select Photos` button and loaded/selected badges now live above the left pane because they belong to the destination workspace
+  - `Choose Photos` is the primary left-pane action for loading files to update
 
 ---
 
@@ -155,8 +155,8 @@ Key objectives:
 - Two-part workflow:
   - choose where GPS comes from
   - choose where GPS goes
-- Source and destination selection are intentionally separate
-- Destination grid is for files that receive GPS
+- Source selection and selected-photo list are intentionally separate
+- The left grid is for files that receive GPS
 - Right panel is for source selection, coordinate entry, and apply actions
 
 ### Thumbnail Area
@@ -185,7 +185,7 @@ Key objectives:
   - Paste button auto-splits coordinates
 - Apply workflow:
   - validates coordinates
-  - confirms before overwriting existing destination GPS
+  - confirms before overwriting existing file GPS
   - writes GPS to selected files
   - refreshes UI afterward
 
@@ -206,13 +206,13 @@ Key objectives:
   - IMPLEMENTED and working for single and multi-file selection
 
 - Overwrite confirmation before replacing existing GPS
-  - IMPLEMENTED for destination files that already contain coordinates
+  - IMPLEMENTED for selected files that already contain coordinates
 
 - Invalid clipboard paste flow
   - FIXED with status-card error messaging instead of crashing
 
-- Source and destination selection ambiguity
-  - IMPROVED by separating source-photo selection from destination-photo selection
+- Source selection ambiguity
+  - IMPROVED by separating source-photo selection from the selected-photo list
 
 ---
 
@@ -263,7 +263,7 @@ Key objectives:
 - Backend currently owns or strongly centers:
   - photo loading
   - coordinate parsing and validation
-  - source/destination workflow rules
+  - source/selected-photo workflow rules
   - overwrite detection
   - GPS write operations
   - workflow/session models
@@ -307,7 +307,7 @@ The application now has:
 - Working backend for GPS reading
 - Working backend for GPS writing
 - Structured data model
-- Functional GUI with separate source and destination workflow
+- Functional GUI with separate source and selected-photo workflow
 - Modular GUI structure with window shell, widgets, presenters, and window mixins
 - Separate source photo picker with preview card
 - Overwrite confirmation before replacing existing GPS

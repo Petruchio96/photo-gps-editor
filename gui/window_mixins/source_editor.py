@@ -13,11 +13,18 @@ from services.coordinate_service import (
     parse_longitude_text,
     parse_manual_coordinates,
 )
-from services.destination_service import get_destination_paths
+from services.target_paths_service import get_target_paths
 from services.workflow_controller import clear_source_workflow, load_source_workflow
 
 
 class SourceEditorMixin:
+    def _clipboard_has_valid_coordinates(self) -> bool:
+        clipboard_text = QApplication.clipboard().text().strip()
+        return self.parse_coordinate_text(clipboard_text) is not None
+
+    def _update_clipboard_buttons(self) -> None:
+        self.paste_coordinates_button.setEnabled(self._clipboard_has_valid_coordinates())
+
     def choose_source_photo(self) -> None:
         source_path = self._pick_photo_file("Choose Source Photo")
         if source_path is None:
@@ -43,7 +50,6 @@ class SourceEditorMixin:
             self.clear_source_button.setEnabled(preview_state.can_clear_source)
             self.source_thumbnail.clear()
             self.source_file_label.setText(preview_state.filename_text)
-            self.source_gps_label.setText(preview_state.gps_text)
             return
 
         if item is None:
@@ -64,7 +70,6 @@ class SourceEditorMixin:
 
         self.source_thumbnail.setPixmap(pixmap)
         self.source_file_label.setText(preview_state.filename_text)
-        self.source_gps_label.setText(preview_state.gps_text)
         self.source_preview_stack.setCurrentIndex(1)
         self.clear_source_button.setEnabled(preview_state.can_clear_source)
 
@@ -104,10 +109,7 @@ class SourceEditorMixin:
         self._set_status_message(message.text, message.tone)
 
     def _update_apply_button_text(self) -> None:
-        if self.photo_source_radio.isChecked():
-            self.apply_button.setText("Apply Photo Source GPS to Destination Files")
-        else:
-            self.apply_button.setText("Apply Manual GPS to Destination Files")
+        self.apply_button.setText("Apply New GPS Coordinates to Selected Files")
 
     def _get_manual_coordinates(self) -> tuple[float, float] | None:
         return parse_manual_coordinates(
@@ -124,14 +126,14 @@ class SourceEditorMixin:
             longitude_text=self.longitude_input.text(),
         )
 
-    def _get_destination_paths(
+    def _get_target_paths(
         self,
         selected_paths: list[Path] | None = None,
     ) -> list[Path]:
         if selected_paths is None:
             selected_paths = self.get_selected_paths()
 
-        return get_destination_paths(
+        return get_target_paths(
             selected_paths,
             self.photo_source_radio.isChecked(),
             self.session.source_photo_path,
@@ -140,11 +142,19 @@ class SourceEditorMixin:
     def _apply_editor_panel_state(self) -> None:
         panel_state = self._build_editor_panel_state()
         self.active_source_coordinates.setText(panel_state.source_summary)
-        self.destination_list.clear()
-        for destination_name in panel_state.destination_names:
-            self.destination_list.addItem(destination_name)
+        self.selected_photos_list.clear()
+        for photo_name in panel_state.selected_photo_names:
+            self.selected_photos_list.addItem(photo_name)
         self.clear_source_button.setEnabled(panel_state.can_clear_source)
+        self.clear_manual_coordinates_button.setEnabled(
+            bool(self.latitude_input.text().strip() or self.longitude_input.text().strip())
+        )
+        self._update_clipboard_buttons()
         self.apply_button.setEnabled(panel_state.can_apply)
+        self.apply_button.setProperty("tone", panel_state.apply_tone)
+        self.apply_button.style().unpolish(self.apply_button)
+        self.apply_button.style().polish(self.apply_button)
+        self.apply_button.update()
 
     def _set_status_message(self, message: str, tone: str = "info") -> None:
         self.status_message.setText(message)
@@ -158,6 +168,7 @@ class SourceEditorMixin:
         parsed = self.parse_coordinate_text(clipboard_text)
 
         if parsed is None:
+            self._update_clipboard_buttons()
             self._set_status_message(
                 "Clipboard text could not be parsed as coordinates. Expected format: 40.486325, -111.813415",
                 "error",
@@ -174,6 +185,18 @@ class SourceEditorMixin:
         self._set_status_message(
             "Coordinates pasted into the manual source fields.",
             "success",
+        )
+
+    def clear_manual_coordinates(self) -> None:
+        self.manual_source_radio.setChecked(True)
+        self.latitude_input.clear()
+        self.longitude_input.clear()
+        self.set_input_error_state(self.latitude_input, False)
+        self.set_input_error_state(self.longitude_input, False)
+        self._apply_editor_panel_state()
+        self._set_status_message(
+            "Manual coordinate fields cleared.",
+            "info",
         )
 
     def parse_coordinate_text(self, text: str) -> tuple[str, str] | None:

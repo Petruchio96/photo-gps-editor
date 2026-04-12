@@ -3,14 +3,14 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox
 
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list
-from services.destination_service import get_destination_paths
+from services.target_paths_service import get_target_paths
 from services.workflow_controller import execute_apply_workflow, prepare_apply_workflow
 
 
 class ApplyWorkflowMixin:
     def apply_coordinates_to_selected(self) -> None:
         selected_paths = self.get_selected_paths()
-        target_paths = get_destination_paths(
+        target_paths = get_target_paths(
             selected_paths,
             self.photo_source_radio.isChecked(),
             self.session.source_photo_path,
@@ -18,7 +18,7 @@ class ApplyWorkflowMixin:
 
         if not target_paths:
             self._set_status_message(
-                "Select one or more destination photos before applying GPS.",
+                "Select one or more photos before applying GPS.",
                 "error",
             )
             return
@@ -45,7 +45,7 @@ class ApplyWorkflowMixin:
             confirmation_dialog.setIcon(QMessageBox.Warning)
             confirmation_dialog.setWindowTitle("Existing GPS Will Change")
             confirmation_dialog.setText(
-                f"{len(overwrite_entries)} destination file(s) already contain GPS and will be overwritten."
+                f"{len(overwrite_entries)} selected file(s) already contain GPS and will be overwritten."
             )
             confirmation_dialog.setInformativeText(
                 "Review the files below and choose OK to continue or Cancel to stop."
@@ -60,7 +60,7 @@ class ApplyWorkflowMixin:
 
             if confirmation_dialog.exec() != QMessageBox.Ok:
                 self._set_status_message(
-                    "GPS write cancelled. Existing destination coordinates were left unchanged.",
+                    "GPS write cancelled. Existing file coordinates were left unchanged.",
                     "info",
                 )
                 return
@@ -75,7 +75,7 @@ class ApplyWorkflowMixin:
         self.session.thumbnail_items = build_thumbnail_item_data_list(
             self.session.loaded_photos
         )
-        self._render_destination_list()
+        self._render_photo_list()
         self.reselect_paths(selected_paths)
         self.update_details_panel()
 
@@ -83,16 +83,16 @@ class ApplyWorkflowMixin:
 
         if result.failed_paths and result.success_count:
             self._set_status_message(
-                f"Updated GPS on {result.success_count} destination file(s). Failed: {'; '.join(result.failed_paths)}",
+                f"Updated GPS on {result.success_count} selected file(s). Failed: {'; '.join(result.failed_paths)}",
                 "error",
             )
         elif result.failed_paths:
             self._set_status_message(
-                f"Failed to update destination files: {'; '.join(result.failed_paths)}",
+                f"Failed to update selected files: {'; '.join(result.failed_paths)}",
                 "error",
             )
         else:
             self._set_status_message(
-                f"Updated GPS on {result.success_count} destination file(s).",
+                f"Updated GPS on {result.success_count} selected file(s).",
                 "success",
             )

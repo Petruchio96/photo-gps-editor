@@ -11,9 +11,9 @@ from core.models import PhotoInfo
 from services.models import WorkflowSession
 
 
-def load_destination_photo_infos(paths: Iterable[Path], loader) -> list[PhotoInfo]:
+def load_selected_photo_infos(paths: Iterable[Path], loader) -> list[PhotoInfo]:
     """
-    Load photo models for the current destination workspace.
+    Load photo models for the current selected-photo workspace.
     """
     return [loader.load_photo_info(path) for path in paths]
 
@@ -32,15 +32,15 @@ def load_source_photo_info(path: Path, loader) -> PhotoInfo:
     return loader.load_photo_info(path)
 
 
-def refresh_destination_session(
+def refresh_photo_session(
     selected_paths: Iterable[Path],
     loader,
 ) -> WorkflowSession:
     """
-    Build the destination-related session state from the current selected paths.
+    Build the selected-photo session state from the current selected paths.
     """
     selected_path_list = list(selected_paths)
-    loaded_photos = load_destination_photo_infos(selected_path_list, loader)
+    loaded_photos = load_selected_photo_infos(selected_path_list, loader)
     return WorkflowSession(
         selected_paths=selected_path_list,
         loaded_photos=loaded_photos,

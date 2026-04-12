@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -27,14 +28,16 @@ from gui.styles import APP_STYLESHEET
 from gui.widgets.browser_panel import build_browser_panel
 from gui.widgets.editor_panel import build_editor_panel
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
-from gui.window_mixins.destination_list import DestinationListMixin
+from gui.window_mixins.photo_list import PhotoListMixin
 from gui.window_mixins.source_editor import SourceEditorMixin
 from services.models import OverwriteEntry, WorkflowSession
+
+APP_VERSION = "1.0"
 
 
 class MainWindow(
     SourceEditorMixin,
-    DestinationListMixin,
+    PhotoListMixin,
     ApplyWorkflowMixin,
     QMainWindow,
 ):
@@ -62,7 +65,10 @@ class MainWindow(
         self._build_ui()
         self._build_menu_bar()
         self._apply_window_style()
+        self._clipboard = self.clipboard()
+        self._clipboard.dataChanged.connect(self._update_clipboard_buttons)
         self._update_selection_metrics()
+        self._update_clipboard_buttons()
 
     def _build_ui(self) -> None:
         central_widget = QWidget()
@@ -70,36 +76,12 @@ class MainWindow(
         self.setCentralWidget(central_widget)
 
         outer_layout = QVBoxLayout(central_widget)
-        outer_layout.setContentsMargins(24, 24, 24, 24)
-        outer_layout.setSpacing(18)
+        outer_layout.setContentsMargins(20, 18, 20, 20)
+        outer_layout.setSpacing(12)
 
-        self.select_button = QPushButton("Select Photos")
+        self.select_button = QPushButton("Choose Photos")
+        self.select_button.setObjectName("accentButton")
         self.select_button.clicked.connect(self.select_photos)
-
-        self.loaded_count_badge = QLabel("0 loaded")
-        self.loaded_count_badge.setObjectName("metricBadge")
-
-        self.selection_count_badge = QLabel("No selection")
-        self.selection_count_badge.setObjectName("metricBadgeMuted")
-
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(16)
-
-        header_text_layout = QVBoxLayout()
-        header_text_layout.setSpacing(4)
-
-        title_label = QLabel("Photo GPS Editor")
-        title_label.setObjectName("windowTitle")
-
-        subtitle_label = QLabel(
-            "Review thumbnails, inspect coordinates, and write precise GPS metadata with a desktop-grade workflow."
-        )
-        subtitle_label.setObjectName("windowSubtitle")
-        subtitle_label.setWordWrap(True)
-
-        header_text_layout.addWidget(title_label)
-        header_text_layout.addWidget(subtitle_label)
-        header_layout.addLayout(header_text_layout, 1)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -109,25 +91,29 @@ class MainWindow(
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([860, 420])
 
-        outer_layout.addLayout(header_layout)
         outer_layout.addWidget(splitter, 1)
 
     def _build_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
 
-        open_action = QAction("Select Photos...", self)
-        open_action.triggered.connect(self.select_photos)
-        file_menu.addAction(open_action)
+        self.open_action = QAction("Choose Photos...", self)
+        self.open_action.triggered.connect(self.select_photos)
+        file_menu.addAction(self.open_action)
 
         file_menu.addSeparator()
 
-        exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.exit_action = QAction("Exit", self)
+        self.exit_action.triggered.connect(self.close)
+        file_menu.addAction(self.exit_action)
+
+        help_menu = self.menuBar().addMenu("&Help")
+
+        self.about_action = QAction("About", self)
+        self.about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(self.about_action)
 
     def _apply_window_style(self) -> None:
         self.setStyleSheet(APP_STYLESHEET)
-        self.apply_button.setObjectName("primaryButton")
         self._update_apply_button_text()
 
     def _update_source_mode_ui(self) -> None:
@@ -138,25 +124,15 @@ class MainWindow(
 
     def _update_selection_metrics(self) -> None:
         loaded_count = len(self.session.selected_paths)
-        self.loaded_count_badge.setText(
-            f"{loaded_count} loaded" if loaded_count else "0 loaded"
-        )
-
         selected_count = len(self.list_widget.selectedItems())
-        if selected_count == 0:
-            self.selection_count_badge.setText("No selection")
-        elif selected_count == 1:
-            self.selection_count_badge.setText("1 selected")
-        else:
-            self.selection_count_badge.setText(f"{selected_count} selected")
 
         if loaded_count == 0:
             self.browser_hint.setText(
-                "No destination photos loaded yet. Use Select Photos to populate the grid."
+                "No photos loaded yet. Use Choose Photos to populate the grid."
             )
         else:
             self.browser_hint.setText(
-                "Tip: choose a source on the right, then use Shift or Ctrl to build the destination list on the left."
+                "Tip: choose a source on the right, then use Shift or Ctrl to select the photos on the left."
             )
 
         self.select_all_button.setEnabled(loaded_count > 0)
@@ -195,3 +171,17 @@ class MainWindow(
         overwrite_entries: list[OverwriteEntry],
     ) -> list[str]:
         return [entry.display_text() for entry in overwrite_entries]
+
+    def show_about_dialog(self) -> None:
+        QMessageBox.about(
+            self,
+            f"About Photo GPS Editor {APP_VERSION}",
+            (
+                f"Photo GPS Editor {APP_VERSION}\n\n"
+                "A desktop application for viewing photo GPS metadata, "
+                "copying coordinates, and applying GPS data to one or more selected files."
+            ),
+        )
+
+    def clipboard(self):
+        return QApplication.clipboard()

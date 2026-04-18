@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem
+from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem, QMessageBox
 
 from gui.presenters.editor_state import build_editor_panel_state
 from gui.presenters.source_preview import build_source_preview_state
+from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
 from services.coordinate_service import (
     parse_coordinate_text,
     parse_latitude_text,
@@ -14,10 +16,35 @@ from services.coordinate_service import (
     parse_manual_coordinates,
 )
 from services.target_paths_service import get_target_paths
-from services.workflow_controller import clear_source_workflow, load_source_workflow
+from services.workflow_controller import (
+    clear_source_workflow,
+    load_source_workflow,
+    refresh_photo_workflow,
+)
 
 
 class SourceEditorMixin:
+    def _selection_has_gps(self, paths: list[Path]) -> bool:
+        return any(
+            (
+                info := self.session.loaded_photo_infos.get(path)
+            ) is not None
+            and info.current_latitude is not None
+            and info.current_longitude is not None
+            for path in paths
+        )
+
+    def _update_target_selection_actions(self) -> None:
+        has_target_photos = bool(self._get_target_paths())
+        self.remove_selected_photos_button.setEnabled(has_target_photos)
+        self.remove_selected_photos_button.setProperty(
+            "tone",
+            "primary" if has_target_photos else "neutral",
+        )
+        self.remove_selected_photos_button.style().unpolish(self.remove_selected_photos_button)
+        self.remove_selected_photos_button.style().polish(self.remove_selected_photos_button)
+        self.remove_selected_photos_button.update()
+
     def _clipboard_has_valid_coordinates(self) -> bool:
         clipboard_text = QApplication.clipboard().text().strip()
         return self.parse_coordinate_text(clipboard_text) is not None
@@ -34,6 +61,10 @@ class SourceEditorMixin:
 
     def _load_source_photo(self, source_path: Path) -> None:
         load_result = load_source_workflow(self.session, source_path, self.loader)
+        if self.photo_source_radio.isChecked():
+            self.session.target_paths = [
+                path for path in self.session.target_paths if path != source_path
+            ]
 
         self._refresh_source_preview()
         self.update_details_panel()
@@ -55,7 +86,7 @@ class SourceEditorMixin:
         if item is None:
             for index in range(self.list_widget.count()):
                 candidate = self.list_widget.item(index)
-                if candidate.data(Qt.UserRole) == str(self.session.source_photo_path):
+                if candidate.data(THUMBNAIL_PATH_ROLE) == str(self.session.source_photo_path):
                     item = candidate
                     break
 
@@ -109,7 +140,7 @@ class SourceEditorMixin:
         self._set_status_message(message.text, message.tone)
 
     def _update_apply_button_text(self) -> None:
-        self.apply_button.setText("Apply New GPS Coordinates to Selected Files")
+        self.apply_button.setText("Apply New GPS Coordinates to Photos")
 
     def _get_manual_coordinates(self) -> tuple[float, float] | None:
         return parse_manual_coordinates(
@@ -120,7 +151,8 @@ class SourceEditorMixin:
     def _build_editor_panel_state(self):
         return build_editor_panel_state(
             session=self.session,
-            selected_paths=self.get_selected_paths(),
+            browser_selected_paths=self.get_selected_paths(),
+            target_selected_paths=self.get_selected_target_paths(),
             using_photo_source=self.photo_source_radio.isChecked(),
             latitude_text=self.latitude_input.text(),
             longitude_text=self.longitude_input.text(),
@@ -128,40 +160,168 @@ class SourceEditorMixin:
 
     def _get_target_paths(
         self,
-        selected_paths: list[Path] | None = None,
+        target_paths: list[Path] | None = None,
     ) -> list[Path]:
-        if selected_paths is None:
-            selected_paths = self.get_selected_paths()
+        if target_paths is None:
+            target_paths = list(self.session.target_paths)
 
         return get_target_paths(
-            selected_paths,
+            target_paths,
             self.photo_source_radio.isChecked(),
             self.session.source_photo_path,
         )
 
+    def get_selected_target_paths(self) -> list[Path]:
+        selected_items = self.selected_photos_list.selectedItems()
+        return [Path(item.data(Qt.UserRole)) for item in selected_items]
+
+    def handle_target_list_selection_changed(self) -> None:
+        if getattr(self, "_syncing_target_selection", False):
+            return
+
+        self.select_browser_paths(
+            self.get_selected_target_paths(),
+            update_details=False,
+        )
+        self._update_selection_metrics()
+        self._update_target_selection_actions()
+
+    def remove_selected_photos_from_target_list(self) -> None:
+        paths_to_remove = set(self.get_selected_target_paths())
+        if not paths_to_remove:
+            paths_to_remove = set(self._get_target_paths())
+
+        if not paths_to_remove:
+            return
+
+        self.session.target_paths = [
+            path for path in self.session.target_paths if path not in paths_to_remove
+        ]
+        self.list_widget.clearSelection()
+        self._refresh_target_list_selection([])
+        self.update_details_panel()
+
+    def _refresh_target_list_selection(self, paths_to_select: list[Path]) -> None:
+        wanted = {str(path) for path in paths_to_select}
+        self._syncing_target_selection = True
+        try:
+            with QSignalBlocker(self.selected_photos_list):
+                self.selected_photos_list.clearSelection()
+                for index in range(self.selected_photos_list.count()):
+                    item = self.selected_photos_list.item(index)
+                    item.setSelected(item.data(Qt.UserRole) in wanted)
+        finally:
+            self._syncing_target_selection = False
+        self._update_target_selection_actions()
+
+    def clear_selected_target_coordinates(self) -> None:
+        target_paths = list(self._get_target_paths())
+        paths_with_gps = [
+            path
+            for path in target_paths
+            if (
+                info := self.session.loaded_photo_infos.get(path)
+            ) is not None
+            and info.current_latitude is not None
+            and info.current_longitude is not None
+        ]
+
+        if not paths_with_gps:
+            return
+
+        confirmation_dialog = QMessageBox(self)
+        confirmation_dialog.setIcon(QMessageBox.Warning)
+        confirmation_dialog.setWindowTitle("GPS Data Will Be Deleted")
+        confirmation_dialog.setText(
+            "The following file(s) will have their GPS metadata deleted:"
+        )
+        confirmation_dialog.setInformativeText(
+            "\n".join(path.name for path in paths_with_gps)
+        )
+        continue_button = confirmation_dialog.addButton(
+            "Continue",
+            QMessageBox.AcceptRole,
+        )
+        cancel_button = confirmation_dialog.addButton(
+            "Cancel",
+            QMessageBox.RejectRole,
+        )
+        confirmation_dialog.setDefaultButton(cancel_button)
+        confirmation_dialog.exec()
+
+        if confirmation_dialog.clickedButton() is not continue_button:
+            return
+
+        for path in paths_with_gps:
+            self.exiftool.clear_gps(path)
+
+        self.session = refresh_photo_workflow(
+            self.session,
+            self.loader,
+        )
+        self._clear_target_list()
+        self.populate_list()
+        self.list_widget.clearSelection()
+        self.update_details_panel()
+
+    def _clear_target_list(self) -> None:
+        self.session.target_paths = []
+        self._syncing_target_selection = True
+        try:
+            with QSignalBlocker(self.selected_photos_list):
+                self.selected_photos_list.clear()
+        finally:
+            self._syncing_target_selection = False
+        self._update_target_selection_actions()
+
     def _apply_editor_panel_state(self) -> None:
         panel_state = self._build_editor_panel_state()
+        selected_target_paths = self.get_selected_target_paths()
         self.active_source_coordinates.setText(panel_state.source_summary)
-        self.selected_photos_list.clear()
-        for photo_name in panel_state.selected_photo_names:
-            self.selected_photos_list.addItem(photo_name)
+        self._syncing_target_selection = True
+        try:
+            with QSignalBlocker(self.selected_photos_list):
+                self.selected_photos_list.clear()
+                for path in self._get_target_paths():
+                    item = QListWidgetItem(path.name)
+                    item.setData(Qt.UserRole, str(path))
+                    info = self.session.loaded_photo_infos.get(path)
+                    if (
+                        info is not None
+                        and info.current_latitude is not None
+                        and info.current_longitude is not None
+                    ):
+                        item.setBackground(QColor("#fff4d6"))
+                        item.setToolTip(
+                            f"Existing GPS: {info.current_latitude:.6f}, {info.current_longitude:.6f}"
+                        )
+                    self.selected_photos_list.addItem(item)
+        finally:
+            self._syncing_target_selection = False
         self.clear_source_button.setEnabled(panel_state.can_clear_source)
         self.clear_manual_coordinates_button.setEnabled(
             bool(self.latitude_input.text().strip() or self.longitude_input.text().strip())
         )
         self._update_clipboard_buttons()
+        self.add_selected_button.setEnabled(panel_state.can_add_selected_photos)
+        self.clear_selected_gps_button.setEnabled(panel_state.can_clear_list_gps)
+        self.clear_selected_gps_button.setProperty(
+            "tone",
+            "danger" if panel_state.can_clear_list_gps else "neutral",
+        )
+        self.clear_selected_gps_button.style().unpolish(self.clear_selected_gps_button)
+        self.clear_selected_gps_button.style().polish(self.clear_selected_gps_button)
+        self.clear_selected_gps_button.update()
         self.apply_button.setEnabled(panel_state.can_apply)
         self.apply_button.setProperty("tone", panel_state.apply_tone)
         self.apply_button.style().unpolish(self.apply_button)
         self.apply_button.style().polish(self.apply_button)
         self.apply_button.update()
+        self._refresh_target_list_selection(selected_target_paths)
 
     def _set_status_message(self, message: str, tone: str = "info") -> None:
-        self.status_message.setText(message)
-        self.status_message.setProperty("tone", tone)
-        self.status_message.style().unpolish(self.status_message)
-        self.status_message.style().polish(self.status_message)
-        self.status_message.update()
+        self._last_status_message = message
+        self._last_status_tone = tone
 
     def paste_coordinates_from_clipboard(self) -> None:
         clipboard_text = QApplication.clipboard().text().strip()
@@ -169,10 +329,6 @@ class SourceEditorMixin:
 
         if parsed is None:
             self._update_clipboard_buttons()
-            self._set_status_message(
-                "Clipboard text could not be parsed as coordinates. Expected format: 40.486325, -111.813415",
-                "error",
-            )
             return
 
         latitude, longitude = parsed
@@ -182,10 +338,6 @@ class SourceEditorMixin:
         self.set_input_error_state(self.latitude_input, False)
         self.set_input_error_state(self.longitude_input, False)
         self._apply_editor_panel_state()
-        self._set_status_message(
-            "Coordinates pasted into the manual source fields.",
-            "success",
-        )
 
     def clear_manual_coordinates(self) -> None:
         self.manual_source_radio.setChecked(True)
@@ -194,10 +346,6 @@ class SourceEditorMixin:
         self.set_input_error_state(self.latitude_input, False)
         self.set_input_error_state(self.longitude_input, False)
         self._apply_editor_panel_state()
-        self._set_status_message(
-            "Manual coordinate fields cleared.",
-            "info",
-        )
 
     def parse_coordinate_text(self, text: str) -> tuple[str, str] | None:
         return parse_coordinate_text(text)

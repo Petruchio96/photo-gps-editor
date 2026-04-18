@@ -40,7 +40,10 @@ def build_thumbnail_item_data_list(
     """
     Build thumbnail presentation data for the current selected-photo workspace.
     """
-    return [build_thumbnail_item_data(photo_info) for photo_info in photo_infos]
+    return sorted(
+        (build_thumbnail_item_data(photo_info) for photo_info in photo_infos),
+        key=lambda item: (item.has_gps, item.filename.lower(), item.filename),
+    )
 
 
 def build_tooltip_text(
@@ -69,6 +72,4 @@ def reselect_paths(
     for index in range(list_widget.count()):
         item = list_widget.item(index)
         item_path = item.data(Qt.UserRole)
-
-        if item_path in wanted:
-            item.setSelected(True)
+        item.setSelected(item_path in wanted)

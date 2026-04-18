@@ -57,6 +57,7 @@ class ThumbnailItemData:
 @dataclass
 class WorkflowSession:
     selected_paths: list[Path] = field(default_factory=list)
+    target_paths: list[Path] = field(default_factory=list)
     loaded_photos: list[PhotoInfo] = field(default_factory=list)
     thumbnail_items: list[ThumbnailItemData] = field(default_factory=list)
     loaded_photo_infos: dict[Path, PhotoInfo] = field(default_factory=dict)

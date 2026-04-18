@@ -159,3 +159,27 @@ class ExifToolWrapper:
 
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Failed to write metadata.")
+
+    def clear_gps(self, path: Path) -> None:
+        """
+        Remove GPS metadata from a file using ExifTool.
+        """
+        command = [
+            self.executable,
+            "-overwrite_original",
+            "-GPSLatitude=",
+            "-GPSLatitudeRef=",
+            "-GPSLongitude=",
+            "-GPSLongitudeRef=",
+            str(path),
+        ]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Failed to clear metadata.")

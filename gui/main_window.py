@@ -32,7 +32,7 @@ from gui.window_mixins.photo_list import PhotoListMixin
 from gui.window_mixins.source_editor import SourceEditorMixin
 from services.models import OverwriteEntry, WorkflowSession
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 
 
 class MainWindow(
@@ -61,6 +61,9 @@ class MainWindow(
 
         self.session = WorkflowSession()
         self._is_splitting_manual_coordinates = False
+        self._syncing_target_selection = False
+        self._last_status_message = ""
+        self._last_status_tone = "info"
 
         self._build_ui()
         self._build_menu_bar()
@@ -132,7 +135,7 @@ class MainWindow(
             )
         else:
             self.browser_hint.setText(
-                "Tip: choose a source on the right, then use Shift or Ctrl to select the photos on the left."
+                "Tip: use Shift or Ctrl to select photos on the left, then add them to the update list on the right."
             )
 
         self.select_all_button.setEnabled(loaded_count > 0)

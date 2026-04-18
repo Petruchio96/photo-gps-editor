@@ -11,10 +11,20 @@ Why this file exists:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
-from PIL import Image, ImageOps, UnidentifiedImageError
-from PySide6.QtGui import QIcon, QPainter, QPixmap
-from PySide6.QtCore import Qt
+from PIL import Image, UnidentifiedImageError
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QIcon,
+    QImageReader,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 
 
 class ThumbnailLoader:
@@ -29,6 +39,13 @@ class ThumbnailLoader:
        Later we can improve RAW preview support.
     """
 
+    BADGE_SIZE: Final[int] = 34
+    BADGE_CORNER_RADIUS: Final[float] = 8.0
+    BADGE_INSET: Final[int] = 2
+    BADGE_ICON_NUDGE_X: Final[int] = 1
+    BADGE_ICON_NUDGE_Y: Final[int] = -1
+    MAX_CACHE_ENTRIES: Final[int] = 512
+
     def __init__(self, thumbnail_size: int = 128) -> None:
         """
         Store the target thumbnail size in pixels.
@@ -38,6 +55,7 @@ class ThumbnailLoader:
                 Maximum width and height for generated thumbnails.
         """
         self.thumbnail_size = thumbnail_size
+        self._icon_cache: dict[tuple[str, int | None, bool], QIcon] = {}
 
         # Store the path to the overlay icon used for photos that already have
         # GPS metadata. Keeping this as a project asset makes the badge more
@@ -45,8 +63,11 @@ class ThumbnailLoader:
         self.overlay_icon_path = (
             Path(__file__).resolve().parent.parent
             / "assets"
-            / "satellite_overlay_icon_128.png"
+            / "satellite_overlay_icon_128 (croped).png"
         )
+        self._fallback_icon = self._build_fallback_icon()
+        self._badge_overlay_pixmap = self._load_trimmed_overlay_pixmap()
+        self._gps_fallback_icon = self._build_badged_icon(self._fallback_icon)
 
     def load_icon(self, path: Path, has_gps: bool = False) -> QIcon:
         """
@@ -68,54 +89,72 @@ class ThumbnailLoader:
         Returns:
             A QIcon that can be shown in a QListWidget or similar Qt widget.
         """
+        cache_key = self._build_cache_key(path, has_gps)
+        cached_icon = self._icon_cache.get(cache_key)
+
+        if cached_icon is not None:
+            return cached_icon
+
         if path.suffix.lower() in {".jpg", ".jpeg"}:
-            real_icon = self._load_jpeg_thumbnail(path)
-            if real_icon is not None:
-                return self._add_gps_badge(real_icon) if has_gps else real_icon
+            real_pixmap = self._load_jpeg_thumbnail(path)
+            if real_pixmap is not None:
+                icon = self._build_badged_icon(QIcon(real_pixmap)) if has_gps else QIcon(real_pixmap)
+                self._cache_icon(cache_key, icon)
+                return icon
 
-        fallback_icon = self._create_fallback_icon()
-        return self._add_gps_badge(fallback_icon) if has_gps else fallback_icon
+        fallback_icon = self._gps_fallback_icon if has_gps else self._fallback_icon
+        self._cache_icon(cache_key, fallback_icon)
+        return fallback_icon
 
-    def _load_jpeg_thumbnail(self, path: Path) -> QIcon | None:
+    def _cache_icon(self, cache_key: tuple[str, int | None, bool], icon: QIcon) -> None:
         """
-        Try to open a JPEG file and convert it into a thumbnail icon.
+        Keep thumbnail caching bounded so long sessions do not grow memory forever.
+        """
+        if len(self._icon_cache) >= self.MAX_CACHE_ENTRIES:
+            self._icon_cache.clear()
+        self._icon_cache[cache_key] = icon
+
+    def _build_cache_key(self, path: Path, has_gps: bool) -> tuple[str, int | None, bool]:
+        """
+        Cache thumbnails by path, timestamp, and GPS badge state.
+        """
+        try:
+            modified_at = path.stat().st_mtime_ns
+        except OSError:
+            modified_at = None
+
+        return (str(path), modified_at, has_gps)
+
+    def _load_jpeg_thumbnail(self, path: Path) -> QPixmap | None:
+        """
+        Try to open a JPEG file and convert it into a thumbnail pixmap.
 
         Args:
             path:
                 Path to a JPG/JPEG image.
 
         Returns:
-            A QIcon if thumbnail generation succeeds, otherwise None.
+            A QPixmap if thumbnail generation succeeds, otherwise None.
         """
-        try:
-            with Image.open(path) as image:
-                # Some photos, especially from phones and cameras, store their
-                # correct display orientation in EXIF metadata instead of
-                # physically rotating the pixel data. exif_transpose applies
-                # that orientation so portrait images appear correctly.
-                image = ImageOps.exif_transpose(image)
+        reader = QImageReader(str(path))
+        reader.setAutoTransform(True)
 
-                # Convert to RGB so we avoid issues with unusual source modes.
-                image = image.convert("RGB")
+        size = reader.size()
+        if size.isValid():
+            scaled_size = QSize(size)
+            scaled_size.scale(
+                self.thumbnail_size,
+                self.thumbnail_size,
+                Qt.KeepAspectRatio,
+            )
+            reader.setScaledSize(scaled_size)
 
-                # Pillow modifies the image in place so it fits inside the
-                # requested bounding box while keeping the aspect ratio.
-                image.thumbnail((self.thumbnail_size, self.thumbnail_size))
-
-                # Build a QPixmap from raw image bytes so Qt can display it.
-                width, height = image.size
-                raw_data = image.tobytes("raw", "RGB")
-
-                pixmap = QPixmap(width, height)
-                pixmap.loadFromData(self._rgb_bytes_to_png_bytes(image), "PNG")
-
-                if pixmap.isNull():
-                    return None
-
-                return QIcon(pixmap)
-
-        except (UnidentifiedImageError, OSError):
+        image = reader.read()
+        if image.isNull():
             return None
+
+        pixmap = QPixmap.fromImage(image)
+        return None if pixmap.isNull() else pixmap
 
     def _rgb_bytes_to_png_bytes(self, image: Image.Image) -> bytes:
         """
@@ -139,7 +178,7 @@ class ThumbnailLoader:
         image.save(buffer, format="PNG")
         return buffer.getvalue()
 
-    def _add_gps_badge(self, icon: QIcon) -> QIcon:
+    def _build_badged_icon(self, icon: QIcon) -> QIcon:
         """
         Draw a small GPS badge in the upper-right corner of an existing icon.
 
@@ -161,22 +200,12 @@ class ThumbnailLoader:
         if base_pixmap.isNull():
             return icon
 
-        overlay = QPixmap(str(self.overlay_icon_path))
+        overlay = self._badge_overlay_pixmap
 
         # If the overlay asset is missing or unreadable, fail gracefully and
         # return the original icon without a badge.
         if overlay.isNull():
             return icon
-
-        # Scale the overlay so it stays small and does not overpower the
-        # thumbnail image itself.
-        overlay_size = 28
-        overlay = overlay.scaled(
-            overlay_size,
-            overlay_size,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
 
         painter = QPainter(base_pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -185,16 +214,101 @@ class ThumbnailLoader:
         # Use the actual pixmap dimensions, not the requested thumbnail size.
         # Real thumbnails often preserve aspect ratio, so they may be smaller
         # than the full bounding box in one dimension.
-        badge_margin = 6
-        badge_x = max(0, base_pixmap.width() - overlay.width() - badge_margin)
-        badge_y = badge_margin
+        badge_x = max(0, base_pixmap.width() - self.BADGE_SIZE)
+        badge_y = 0
 
-        painter.drawPixmap(badge_x, badge_y, overlay)
+        badge_background_rect = QRectF(
+            badge_x,
+            badge_y,
+            self.BADGE_SIZE,
+            self.BADGE_SIZE,
+        )
+        painter.setPen(QPen(Qt.NoPen))
+        painter.setBrush(QBrush(QColor("white")))
+        painter.drawPath(
+            self._top_right_square_badge_path(
+                badge_background_rect,
+                self.BADGE_CORNER_RADIUS,
+            )
+        )
+
+        inner_badge_rect = QRectF(
+            badge_x + self.BADGE_INSET,
+            badge_y + self.BADGE_INSET,
+            self.BADGE_SIZE - (self.BADGE_INSET * 2),
+            self.BADGE_SIZE - (self.BADGE_INSET * 2),
+        )
+        overlay = overlay.scaled(
+            int(inner_badge_rect.width()),
+            int(inner_badge_rect.height()),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        overlay_x = (
+            int(inner_badge_rect.x() + ((inner_badge_rect.width() - overlay.width()) / 2))
+            + self.BADGE_ICON_NUDGE_X
+        )
+        overlay_y = (
+            int(inner_badge_rect.y() + ((inner_badge_rect.height() - overlay.height()) / 2))
+            + self.BADGE_ICON_NUDGE_Y
+        )
+        painter.drawPixmap(overlay_x, overlay_y, overlay)
         painter.end()
 
         return QIcon(base_pixmap)
 
+    def _load_trimmed_overlay_pixmap(self) -> QPixmap:
+        """
+        Load the overlay asset and trim any transparent padding around it.
+        """
+        try:
+            with Image.open(self.overlay_icon_path) as overlay_image:
+                overlay_image = overlay_image.convert("RGBA")
+                alpha = overlay_image.getchannel("A")
+                bounds = alpha.getbbox()
+
+                if bounds is not None:
+                    overlay_image = overlay_image.crop(bounds)
+
+                pixmap = QPixmap()
+                pixmap.loadFromData(
+                    self._rgb_bytes_to_png_bytes(overlay_image),
+                    "PNG",
+                )
+                return pixmap
+        except (UnidentifiedImageError, OSError):
+            return QPixmap()
+
+    def _top_right_square_badge_path(
+        self,
+        rect: QRectF,
+        radius: float,
+    ) -> QPainterPath:
+        """
+        Return a badge path with a square top-right corner and rounded others.
+        """
+        left = rect.left()
+        top = rect.top()
+        right = rect.right()
+        bottom = rect.bottom()
+        radius = min(radius, rect.width() / 2, rect.height() / 2)
+
+        path = QPainterPath()
+        path.moveTo(left + radius, top)
+        path.lineTo(right, top)
+        path.lineTo(right, bottom - radius)
+        path.arcTo(right - (2 * radius), bottom - (2 * radius), 2 * radius, 2 * radius, 0, -90)
+        path.lineTo(left + radius, bottom)
+        path.arcTo(left, bottom - (2 * radius), 2 * radius, 2 * radius, 270, -90)
+        path.lineTo(left, top + radius)
+        path.arcTo(left, top, 2 * radius, 2 * radius, 180, -90)
+        path.closeSubpath()
+        return path
+
     def _create_fallback_icon(self) -> QIcon:
+        return self._fallback_icon
+
+    def _build_fallback_icon(self) -> QIcon:
         """
         Create a simple placeholder icon for files that do not have a real
         thumbnail yet.

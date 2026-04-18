@@ -144,6 +144,44 @@ QPushButton#applyButton[tone="warning"]:pressed {
     background: #8f2a2a;
     border-color: #8f2a2a;
 }
+QPushButton[tone="danger"] {
+    background: #c24141;
+    color: white;
+    border-color: #c24141;
+}
+QPushButton[tone="danger"]:hover {
+    background: #a83333;
+    border-color: #a83333;
+}
+QPushButton[tone="danger"]:pressed {
+    background: #8f2a2a;
+    border-color: #8f2a2a;
+}
+QPushButton[tone="danger"]:disabled,
+QPushButton[tone="primary"]:disabled,
+QPushButton[tone="neutral"]:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
+}
+QPushButton[tone="primary"] {
+    background: #1f6feb;
+    color: white;
+    border-color: #1f6feb;
+}
+QPushButton[tone="primary"]:hover {
+    background: #165dc5;
+    border-color: #165dc5;
+}
+QPushButton[tone="primary"]:pressed {
+    background: #124da6;
+    border-color: #124da6;
+}
+QPushButton[tone="neutral"] {
+    background: #ffffff;
+    color: #102033;
+    border: 1px solid #cad6e2;
+}
 QGroupBox {
     background: #ffffff;
     border: 1px solid #d8e1ea;
@@ -209,6 +247,71 @@ QListWidget#thumbnailGrid::item:selected {
     background: #dcebff;
     border-color: #8cb7f0;
     color: #0b2441;
+}
+QLabel#thumbnailGroupHeader {
+    color: #4d6177;
+    font-weight: 600;
+    padding-left: 2px;
+}
+QListWidget#thumbnailGrid QScrollBar:vertical,
+QListWidget#selectedPhotosList QScrollBar:vertical {
+    background: #eef3f8;
+    width: 14px;
+    margin: 8px 2px 8px 2px;
+    border-radius: 7px;
+}
+QListWidget#thumbnailGrid QScrollBar::handle:vertical,
+QListWidget#selectedPhotosList QScrollBar::handle:vertical {
+    background: #c4cfdb;
+    min-height: 36px;
+    border-radius: 7px;
+}
+QListWidget#thumbnailGrid QScrollBar::handle:vertical:hover,
+QListWidget#selectedPhotosList QScrollBar::handle:vertical:hover {
+    background: #b3c0ce;
+}
+QListWidget#thumbnailGrid QScrollBar::add-line:vertical,
+QListWidget#thumbnailGrid QScrollBar::sub-line:vertical,
+QListWidget#selectedPhotosList QScrollBar::add-line:vertical,
+QListWidget#selectedPhotosList QScrollBar::sub-line:vertical {
+    background: transparent;
+    height: 0px;
+}
+QListWidget#thumbnailGrid QScrollBar::add-page:vertical,
+QListWidget#thumbnailGrid QScrollBar::sub-page:vertical,
+QListWidget#selectedPhotosList QScrollBar::add-page:vertical,
+QListWidget#selectedPhotosList QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QListWidget#thumbnailGrid QScrollBar:horizontal,
+QListWidget#selectedPhotosList QScrollBar:horizontal {
+    background: #eef3f8;
+    height: 14px;
+    margin: 2px 8px 2px 8px;
+    border-radius: 7px;
+}
+QListWidget#thumbnailGrid QScrollBar::handle:horizontal,
+QListWidget#selectedPhotosList QScrollBar::handle:horizontal {
+    background: #c4cfdb;
+    min-width: 36px;
+    border-radius: 7px;
+}
+QListWidget#thumbnailGrid QScrollBar::handle:horizontal:hover,
+QListWidget#selectedPhotosList QScrollBar::handle:horizontal:hover {
+    background: #b3c0ce;
+}
+QListWidget#thumbnailGrid QScrollBar::add-line:horizontal,
+QListWidget#thumbnailGrid QScrollBar::sub-line:horizontal,
+QListWidget#selectedPhotosList QScrollBar::add-line:horizontal,
+QListWidget#selectedPhotosList QScrollBar::sub-line:horizontal {
+    background: transparent;
+    width: 0px;
+}
+QListWidget#thumbnailGrid QScrollBar::add-page:horizontal,
+QListWidget#thumbnailGrid QScrollBar::sub-page:horizontal,
+QListWidget#selectedPhotosList QScrollBar::add-page:horizontal,
+QListWidget#selectedPhotosList QScrollBar::sub-page:horizontal {
+    background: transparent;
 }
 QLabel#browserHint {
     color: #617084;

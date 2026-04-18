@@ -1,5 +1,5 @@
 [project]
 name = "photo-gps-editor"
-version = "0.1.0"
+version = "1.1"
 description = "Desktop app for changing GPS metadata in image files"
 requires-python = ">=3.12"

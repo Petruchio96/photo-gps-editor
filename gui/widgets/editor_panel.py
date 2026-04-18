@@ -171,36 +171,47 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
 
     window.selected_photos_list = QListWidget()
     window.selected_photos_list.setObjectName("selectedPhotosList")
-    window.selected_photos_list.setSelectionMode(QListWidget.NoSelection)
+    window.selected_photos_list.setSelectionMode(QListWidget.ExtendedSelection)
     window.selected_photos_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     window.selected_photos_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     window.selected_photos_list.setMaximumHeight(124)
     window.selected_photos_list.setMinimumHeight(124)
+    window.selected_photos_list.itemSelectionChanged.connect(
+        window.handle_target_list_selection_changed
+    )
 
     window.selected_photos_title_label = QLabel(
         "Selected Photos to Change GPS Coordinates"
     )
     window.selected_photos_title_label.setObjectName("sectionTitle")
 
-    window.apply_button = QPushButton("Apply New GPS Coordinates to Selected Files")
+    window.remove_selected_photos_button = QPushButton("Remove Selected Photos")
+    window.remove_selected_photos_button.setProperty("tone", "neutral")
+    window.remove_selected_photos_button.setEnabled(False)
+    window.remove_selected_photos_button.clicked.connect(
+        window.remove_selected_photos_from_target_list
+    )
+
+    window.clear_selected_gps_button = QPushButton("Clear Coordinates from Photos")
+    window.clear_selected_gps_button.setProperty("tone", "neutral")
+    window.clear_selected_gps_button.setEnabled(False)
+    window.clear_selected_gps_button.clicked.connect(window.clear_selected_target_coordinates)
+
+    window.apply_button = QPushButton("Apply New GPS Coordinates to Photos")
     window.apply_button.setObjectName("applyButton")
     window.apply_button.setProperty("tone", "safe")
     window.apply_button.setEnabled(False)
-    window.apply_button.setMinimumHeight(34)
+    window.apply_button.setMinimumHeight(40)
     window.apply_button.clicked.connect(window.apply_coordinates_to_selected)
-
-    window.status_message = QLabel("Choose a source and select photos to update.")
-    window.status_message.setObjectName("statusCard")
-    window.status_message.setProperty("tone", "info")
-    window.status_message.setWordWrap(True)
 
     layout.addWidget(inspector_title)
     layout.addWidget(inspector_note)
     layout.addWidget(source_group)
     layout.addWidget(window.selected_photos_title_label)
     layout.addWidget(window.selected_photos_list)
+    layout.addWidget(window.remove_selected_photos_button)
+    layout.addWidget(window.clear_selected_gps_button)
     layout.addWidget(window.apply_button)
-    layout.addWidget(window.status_message)
     layout.addStretch(1)
 
     window._update_source_mode_ui()

@@ -53,15 +53,39 @@ class ThumbnailItemServiceTests(unittest.TestCase):
 
     def test_build_thumbnail_item_data_list_preserves_order(self) -> None:
         photo_infos = [
+            PhotoInfo(
+                path=Path("/tmp/two.jpg"),
+                file_type="JPG",
+                current_latitude=40.5,
+                current_longitude=-111.8,
+            ),
             PhotoInfo(path=Path("/tmp/one.jpg"), file_type="JPG"),
-            PhotoInfo(path=Path("/tmp/two.jpg"), file_type="JPG"),
+            PhotoInfo(path=Path("/tmp/Three.jpg"), file_type="JPG"),
         ]
 
         item_data = build_thumbnail_item_data_list(photo_infos)
 
         self.assertEqual(
             [entry.filename for entry in item_data],
-            ["one.jpg", "two.jpg"],
+            ["one.jpg", "Three.jpg", "two.jpg"],
+        )
+
+    def test_build_thumbnail_item_data_list_places_files_without_gps_first(self) -> None:
+        photo_infos = [
+            PhotoInfo(
+                path=Path("/tmp/with-gps.jpg"),
+                file_type="JPG",
+                current_latitude=40.5,
+                current_longitude=-111.8,
+            ),
+            PhotoInfo(path=Path("/tmp/without-gps.jpg"), file_type="JPG"),
+        ]
+
+        item_data = build_thumbnail_item_data_list(photo_infos)
+
+        self.assertEqual(
+            [(entry.filename, entry.has_gps) for entry in item_data],
+            [("without-gps.jpg", False), ("with-gps.jpg", True)],
         )
 
     def test_reselect_paths_restores_matching_items_only(self) -> None:
@@ -72,6 +96,10 @@ class ThumbnailItemServiceTests(unittest.TestCase):
             item = QListWidgetItem(name)
             item.setData(Qt.UserRole, f"/tmp/{name}")
             widget.addItem(item)
+
+        header = QListWidgetItem("Files with GPS Coordinates")
+        header.setData(Qt.UserRole, None)
+        widget.addItem(header)
 
         reselect_paths(widget, [Path("/tmp/one.jpg"), Path("/tmp/three.jpg")])
 

@@ -9,7 +9,7 @@ from services.workflow_controller import execute_apply_workflow, prepare_apply_w
 
 class ApplyWorkflowMixin:
     def apply_coordinates_to_selected(self) -> None:
-        selected_paths = self.get_selected_paths()
+        selected_paths = list(self.session.target_paths)
         target_paths = get_target_paths(
             selected_paths,
             self.photo_source_radio.isChecked(),
@@ -72,27 +72,13 @@ class ApplyWorkflowMixin:
             loader=self.loader,
         )
         self.session = apply_result.session
+        self._clear_target_list()
         self.session.thumbnail_items = build_thumbnail_item_data_list(
             self.session.loaded_photos
         )
         self._render_photo_list()
-        self.reselect_paths(selected_paths)
         self.update_details_panel()
 
         result = apply_result.execution_result
-
-        if result.failed_paths and result.success_count:
-            self._set_status_message(
-                f"Updated GPS on {result.success_count} selected file(s). Failed: {'; '.join(result.failed_paths)}",
-                "error",
-            )
-        elif result.failed_paths:
-            self._set_status_message(
-                f"Failed to update selected files: {'; '.join(result.failed_paths)}",
-                "error",
-            )
-        else:
-            self._set_status_message(
-                f"Updated GPS on {result.success_count} selected file(s).",
-                "success",
-            )
+        if result.failed_paths:
+            self._last_apply_failures = list(result.failed_paths)

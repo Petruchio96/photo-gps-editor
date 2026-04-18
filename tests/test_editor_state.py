@@ -10,7 +10,8 @@ class EditorStateTests(unittest.TestCase):
     def test_build_editor_panel_state_for_photo_source_with_no_source_selected(self) -> None:
         state = build_editor_panel_state(
             session=WorkflowSession(),
-            selected_paths=[],
+            browser_selected_paths=[],
+            target_selected_paths=[],
             using_photo_source=True,
             latitude_text="",
             longitude_text="",
@@ -27,6 +28,7 @@ class EditorStateTests(unittest.TestCase):
         target_photo = Path("/tmp/target-photo.jpg")
         state = build_editor_panel_state(
             session=WorkflowSession(
+                target_paths=[source, target_photo],
                 source_photo_path=source,
                 source_photo_info=PhotoInfo(
                     path=source,
@@ -35,7 +37,8 @@ class EditorStateTests(unittest.TestCase):
                     current_longitude=-111.8,
                 ),
             ),
-            selected_paths=[source, target_photo],
+            browser_selected_paths=[],
+            target_selected_paths=[],
             using_photo_source=True,
             latitude_text="",
             longitude_text="",
@@ -53,8 +56,9 @@ class EditorStateTests(unittest.TestCase):
     def test_build_editor_panel_state_for_manual_source_without_valid_coordinates(self) -> None:
         target_photo = Path("/tmp/target-photo.jpg")
         state = build_editor_panel_state(
-            session=WorkflowSession(),
-            selected_paths=[target_photo],
+            session=WorkflowSession(target_paths=[target_photo]),
+            browser_selected_paths=[],
+            target_selected_paths=[],
             using_photo_source=False,
             latitude_text="bad",
             longitude_text="still bad",
@@ -68,8 +72,9 @@ class EditorStateTests(unittest.TestCase):
     def test_build_editor_panel_state_for_manual_source_with_valid_coordinates(self) -> None:
         target_photo = Path("/tmp/target-photo.jpg")
         state = build_editor_panel_state(
-            session=WorkflowSession(),
-            selected_paths=[target_photo],
+            session=WorkflowSession(target_paths=[target_photo]),
+            browser_selected_paths=[],
+            target_selected_paths=[],
             using_photo_source=False,
             latitude_text="40.486325",
             longitude_text="-111.813415",
@@ -87,6 +92,7 @@ class EditorStateTests(unittest.TestCase):
         target_photo = Path("/tmp/target-photo.jpg")
         state = build_editor_panel_state(
             session=WorkflowSession(
+                target_paths=[target_photo],
                 loaded_photo_infos={
                     target_photo: PhotoInfo(
                         path=target_photo,
@@ -96,7 +102,8 @@ class EditorStateTests(unittest.TestCase):
                     )
                 }
             ),
-            selected_paths=[target_photo],
+            browser_selected_paths=[],
+            target_selected_paths=[target_photo],
             using_photo_source=False,
             latitude_text="40.486325",
             longitude_text="-111.813415",
@@ -104,6 +111,7 @@ class EditorStateTests(unittest.TestCase):
 
         self.assertTrue(state.can_apply)
         self.assertEqual(state.apply_tone, "warning")
+        self.assertTrue(state.can_clear_list_gps)
 
 
 if __name__ == "__main__":

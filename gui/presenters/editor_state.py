@@ -15,6 +15,9 @@ from services.source_service import resolve_active_source
 class EditorPanelState:
     source_summary: str
     selected_photo_names: list[str]
+    can_add_selected_photos: bool
+    can_remove_selected_photos: bool
+    can_clear_list_gps: bool
     can_clear_source: bool
     can_apply: bool
     apply_tone: str
@@ -23,7 +26,8 @@ class EditorPanelState:
 def build_editor_panel_state(
     *,
     session: WorkflowSession,
-    selected_paths,
+    browser_selected_paths,
+    target_selected_paths,
     using_photo_source: bool,
     latitude_text: str,
     longitude_text: str,
@@ -32,9 +36,13 @@ def build_editor_panel_state(
     Build the derived UI state for the editor panel from workflow/session inputs.
     """
     target_paths = get_target_paths(
-        list(selected_paths),
+        list(session.target_paths),
         using_photo_source,
         session.source_photo_path,
+    )
+    staged_path_set = set(session.target_paths)
+    can_add_selected_photos = any(
+        path not in staged_path_set for path in browser_selected_paths
     )
     has_selected_targets = bool(target_paths)
     any_target_has_gps = any(
@@ -75,6 +83,16 @@ def build_editor_panel_state(
     return EditorPanelState(
         source_summary=source_summary,
         selected_photo_names=[path.name for path in target_paths],
+        can_add_selected_photos=can_add_selected_photos,
+        can_remove_selected_photos=bool(target_selected_paths),
+        can_clear_list_gps=any(
+            (
+                info := session.loaded_photo_infos.get(path)
+            ) is not None
+            and info.current_latitude is not None
+            and info.current_longitude is not None
+            for path in target_paths
+        ),
         can_clear_source=session.source_photo_path is not None,
         can_apply=has_selected_targets and source_resolution.coordinates is not None,
         apply_tone="warning" if any_target_has_gps else "safe",

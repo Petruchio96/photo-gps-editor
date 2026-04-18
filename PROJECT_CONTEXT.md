@@ -1,9 +1,9 @@
 # Photo GPS Editor - Project Context
 
 ## Version / Snapshot
-Last updated: 2026-04-11
-Version: 1.0
-Status: Version 1 desktop application with separated source/selected-photo workflow, reusable backend workflow/services layer, desktop presentation layer, overwrite confirmation, and expanded automated test coverage
+Last updated: 2026-04-18
+Version: 1.1
+Status: Version 1 desktop application with separated source/selected-photo workflow, grouped thumbnail browser, GPS badge indicators, reusable backend workflow/services layer, and expanded automated test coverage
 
 ## Repository
 GitHub repo: https://github.com/Petruchio96/photo-gps-editor
@@ -48,11 +48,10 @@ Key objectives:
   - Handles missing GPS and errors cleanly
 
 - `thumbnail_loader.py`
-  - Generates thumbnails using Pillow
-  - Applies EXIF orientation fix (`ImageOps.exif_transpose`)
+  - Generates JPG thumbnails with Qt `QImageReader` scaled decode for better performance
   - Returns Qt icons for GUI display
   - Provides fallback icon for unsupported formats
-  - Adds GPS badge overlay using a PNG asset
+  - Adds cached GPS badge overlay using a PNG asset with white background treatment
 
 ### Desktop Frontend Structure
 
@@ -93,8 +92,9 @@ Key objectives:
 - Source photo selection is now separate from the selected-photo list
 - JPG thumbnails display correctly
 - RAW files use fallback icons
-- Portrait images now display correctly (EXIF fix applied)
+- Portrait images now display correctly
 - GPS badge overlay shown on thumbnails with GPS metadata
+- Browser groups files without GPS first, then shows a divider row and `Photos with GPS Coordinates` before GPS-tagged files
 
 ### Right Panel (Detail / Edit Panel)
 
@@ -113,17 +113,14 @@ Key objectives:
   - `Choose Source Photo`
   - `Clear Source`
   - `Paste Coordinates from Clipboard`
-  - `Apply New GPS Coordinates to Selected Files`
+  - `Remove Selected Photos`
+  - `Clear Coordinates from Photos`
+  - `Apply New GPS Coordinates to Photos`
 
 - Source photo workflow:
   - Source photo can be chosen independently of loaded photos
   - Source preview shows thumbnail, filename, and GPS state
   - Source photo without GPS is surfaced clearly and cannot be applied
-
-- Status messaging:
-  - Single-line status card replaces previous notes area
-  - Displays success, error, and guidance messages
-  - Used for clipboard errors, source loading feedback, cancel flow, and apply results
 
 - Validation UX:
   - Field-level validation for latitude and longitude
@@ -140,6 +137,9 @@ Key objectives:
   - Left side is now selected-photo workflow
   - Right side is now source/editor workflow
   - `Choose Photos` is the primary left-pane action for loading files to update
+  - Right-side selected-photo list acts as the batch to modify
+  - `Remove Selected Photos` removes highlighted entries, or clears the whole batch when nothing in that list is highlighted
+  - `Clear Coordinates from Photos` is only active when at least one photo in the batch already has GPS data
 
 ---
 
@@ -177,6 +177,10 @@ Key objectives:
   - copy GPS coordinates
 - GPS badge overlay:
   - shown on thumbnails with GPS data
+- Grouped browser list:
+  - files without GPS appear first
+  - files with GPS appear after a divider/header row
+  - each group is sorted by filename
 - Source workflow:
   - separate source photo picker
   - source preview card with thumbnail, filename, and GPS status
@@ -186,8 +190,12 @@ Key objectives:
 - Apply workflow:
   - validates coordinates
   - confirms before overwriting existing file GPS
-  - writes GPS to selected files
+  - writes GPS to the full right-side batch list
+  - clears the right-side batch list after apply completes
   - refreshes UI afterward
+- Clear GPS workflow:
+  - clears GPS from the full right-side batch list when eligible
+  - clears the right-side batch list after completion
 
 ---
 
@@ -208,21 +216,15 @@ Key objectives:
 - Overwrite confirmation before replacing existing GPS
   - IMPLEMENTED for selected files that already contain coordinates
 
-- Invalid clipboard paste flow
-  - FIXED with status-card error messaging instead of crashing
-
 - Source selection ambiguity
   - IMPROVED by separating source-photo selection from the selected-photo list
+
+- Thumbnail loading performance
+  - IMPROVED by switching JPG thumbnail decode to Qt `QImageReader` and caching generated icons
 
 ---
 
 ## Known Issues (Open)
-
-- GPS badge overlay visibility
-  - Current PNG overlay works functionally
-  - Appears washed out and low-quality on some thumbnails
-  - Next planned work item
-  - Needs improved contrast or redesigned asset
 
 - Portrait orientation in file picker dialog
   - Main app thumbnails display correctly
@@ -238,8 +240,7 @@ Key objectives:
 1. Redesign the thumbnail GPS indicator/badge so existing GPS data is clearly visible and looks polished
 2. Investigate file picker orientation behavior
 3. Continue UI polish and spacing refinements now that the workflow model is stable
-4. Consider performance improvements for file loading and thumbnail generation
-5. Explore a future API layer for web/container deployment built on the reusable `services/` backend
+4. Explore a future API layer for web/container deployment built on the reusable `services/` backend
 
 ### UI Enhancements
 
@@ -277,14 +278,12 @@ Key objectives:
 ### Editing Functionality
 
 8. Add backup option before writing metadata
-9. Consider clear / remove GPS workflow
 
 ### Advanced Features
 
-10. Add "Clear GPS" option
-11. Add detail panel enhancements
-12. Add drag-and-drop support for loading photos
-13. Add Edit file menu with cut, copy, paste and other useful options
+9. Add detail panel enhancements
+10. Add drag-and-drop support for loading photos
+11. Add Edit file menu with cut, copy, paste and other useful options
 
 ---
 
@@ -308,13 +307,15 @@ The application now has:
 - Working backend for GPS writing
 - Structured data model
 - Functional GUI with separate source and selected-photo workflow
+- Grouped thumbnail browser that makes GPS-tagged photos easier to identify
 - Modular GUI structure with window shell, widgets, presenters, and window mixins
 - Separate source photo picker with preview card
 - Overwrite confirmation before replacing existing GPS
+- Clear-GPS workflow and batch-list reset after apply/clear operations
+- Faster JPG thumbnail loading with cached badge/fallback handling
 - Reusable backend/application services separated from the desktop frontend
 - Expanded automated test coverage across backend helpers, workflow services, presenters, and GUI workflow
 
 Next phase focuses on:
-- visual improvements (badge + layout)
-- performance improvements for loading and thumbnail generation
+- remaining visual improvements
 - possible API layer for future web/container deployment

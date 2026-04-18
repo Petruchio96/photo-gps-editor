@@ -36,7 +36,7 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     section_heading.setObjectName("sectionTitle")
 
     section_note = QLabel(
-        "Choose the photos that should receive GPS coordinates. Right click any thumbnail to copy its current GPS coordinates."
+        "Choose photos in the browser, then add them to the update list on the right. Right click any thumbnail to copy its current GPS coordinates."
     )
     section_note.setObjectName("sectionNote")
     section_note.setWordWrap(True)
@@ -50,15 +50,16 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.list_widget.setObjectName("thumbnailGrid")
     window.list_widget.setViewMode(QListWidget.IconMode)
     window.list_widget.setIconSize(QSize(128, 128))
-    window.list_widget.setGridSize(QSize(170, 190))
     window.list_widget.setResizeMode(QListWidget.Adjust)
     window.list_widget.setSpacing(12)
-    window.list_widget.setUniformItemSizes(True)
     window.list_widget.setWordWrap(True)
+    window.list_widget.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+    window.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     window.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
     window.list_widget.itemSelectionChanged.connect(window.update_details_panel)
     window.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
     window.list_widget.customContextMenuRequested.connect(window.show_context_menu)
+    window.list_widget.verticalScrollBar().setSingleStep(24)
 
     window.select_all_button = QPushButton("Select All")
     window.select_all_button.clicked.connect(window.select_all_photos)
@@ -66,10 +67,16 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.clear_selection_button = QPushButton("Clear Selection")
     window.clear_selection_button.clicked.connect(window.clear_photo_selection)
 
+    window.add_selected_button = QPushButton("Add Selected to Update List")
+    window.add_selected_button.setObjectName("accentButton")
+    window.add_selected_button.setEnabled(False)
+    window.add_selected_button.clicked.connect(window.add_selected_photos_to_target_list)
+
     selection_button_row = QHBoxLayout()
     selection_button_row.setSpacing(10)
     selection_button_row.addWidget(window.select_all_button)
     selection_button_row.addWidget(window.clear_selection_button)
+    selection_button_row.addWidget(window.add_selected_button)
 
     window.browser_hint = QLabel(
         "No photos loaded yet. Use Choose Photos to populate the grid."

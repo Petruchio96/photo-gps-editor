@@ -14,14 +14,24 @@ from gui.main_window import APP_VERSION, MainWindow
 
 
 class FakeExifTool:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        gps_by_path: dict[Path, tuple[float | None, float | None]] | None = None,
+    ) -> None:
         self.writes: list[tuple[Path, float, float]] = []
+        self.clears: list[Path] = []
         self.failures: dict[Path, Exception] = {}
+        self.gps_by_path = gps_by_path if gps_by_path is not None else {}
 
     def write_gps(self, path: Path, latitude: float, longitude: float) -> None:
         if path in self.failures:
             raise self.failures[path]
         self.writes.append((path, latitude, longitude))
+        self.gps_by_path[path] = (latitude, longitude)
+
+    def clear_gps(self, path: Path) -> None:
+        self.clears.append(path)
+        self.gps_by_path[path] = (None, None)
 
 
 class FakePhotoLoader:
@@ -65,7 +75,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.paths[1]: (None, None),
         }
 
-        self.window.exiftool = FakeExifTool()
+        self.window.exiftool = FakeExifTool(self.gps_by_path)
         self.window.loader = FakePhotoLoader(self.gps_by_path)
         self.window.thumbnail_loader = FakeThumbnailLoader()
         self.window.session.selected_paths = list(self.paths)
@@ -98,7 +108,9 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.choose_source_button.text(), "Choose Source Photo")
         self.assertEqual(self.window.choose_source_button.objectName(), "accentButton")
         self.assertIsNotNone(self.window.clear_manual_coordinates_button)
-        self.assertIsNotNone(self.window.status_message)
+        self.assertIsNotNone(self.window.add_selected_button)
+        self.assertIsNotNone(self.window.remove_selected_photos_button)
+        self.assertIsNotNone(self.window.clear_selected_gps_button)
         self.assertIsNotNone(self.window.about_action)
         self.assertEqual(
             self.window.paste_coordinates_button.text(),
@@ -111,10 +123,6 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.window.select_button.text(),
             "Choose Photos",
         )
-        self.assertEqual(
-            self.window.status_message.text(),
-            "Choose a source and select photos to update.",
-        )
         self.assertEqual(self.window.open_action.text(), "Choose Photos...")
         self.assertEqual(self.window.select_button.objectName(), "accentButton")
         self.assertEqual(
@@ -123,10 +131,23 @@ class MainWindowSmokeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.window.apply_button.text(),
-            "Apply New GPS Coordinates to Selected Files",
+            "Apply New GPS Coordinates to Photos",
         )
         self.assertEqual(self.window.apply_button.objectName(), "applyButton")
         self.assertEqual(self.window.apply_button.property("tone"), "safe")
+        self.assertEqual(
+            self.window.remove_selected_photos_button.text(),
+            "Remove Selected Photos",
+        )
+        self.assertEqual(self.window.remove_selected_photos_button.property("tone"), "neutral")
+        self.assertEqual(
+            self.window.clear_selected_gps_button.text(),
+            "Clear Coordinates from Photos",
+        )
+        self.assertEqual(self.window.clear_selected_gps_button.property("tone"), "neutral")
+        self.assertFalse(self.window.add_selected_button.isEnabled())
+        self.assertFalse(self.window.remove_selected_photos_button.isEnabled())
+        self.assertFalse(self.window.clear_selected_gps_button.isEnabled())
 
     def test_about_action_opens_versioned_dialog(self) -> None:
         with patch("gui.main_window.QMessageBox.about") as about_dialog:
@@ -189,9 +210,55 @@ class MainWindowSmokeTests(unittest.TestCase):
             (40.714166666666664, -74.006),
         )
 
+    def test_adding_browser_selection_populates_target_list_and_clears_left_selection(self) -> None:
+        self.window.select_all_photos()
+
+        self.assertTrue(self.window.add_selected_button.isEnabled())
+
+        self.window.add_selected_photos_to_target_list()
+
+        self.assertEqual(self.window.session.target_paths, self.paths)
+        self.assertEqual(len(self.window.list_widget.selectedItems()), 0)
+        self.assertEqual(self.window.selected_photos_list.count(), len(self.paths))
+        self.assertTrue(self.window.remove_selected_photos_button.isEnabled())
+        self.assertEqual(self.window.remove_selected_photos_button.property("tone"), "primary")
+        self.assertTrue(self.window.clear_selected_gps_button.isEnabled())
+        self.assertEqual(self.window.clear_selected_gps_button.property("tone"), "danger")
+
+    def test_selecting_target_list_item_syncs_browser_selection(self) -> None:
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+
+        target_item = self.window.selected_photos_list.item(0)
+        target_item.setSelected(True)
+        self.window.handle_target_list_selection_changed()
+
+        selected_browser_paths = self.window.get_selected_paths()
+
+        self.assertEqual(selected_browser_paths, [self.paths[0]])
+        self.assertTrue(self.window.remove_selected_photos_button.isEnabled())
+        self.assertEqual(self.window.remove_selected_photos_button.property("tone"), "primary")
+
+    def test_target_list_selection_replaces_browser_selection(self) -> None:
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+
+        first_item = self.window.selected_photos_list.item(0)
+        second_item = self.window.selected_photos_list.item(1)
+
+        first_item.setSelected(True)
+        self.window.handle_target_list_selection_changed()
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+        first_item.setSelected(False)
+        second_item.setSelected(True)
+        self.window.handle_target_list_selection_changed()
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[1]])
+
     def test_separate_source_photo_can_drive_selected_photo_list(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
 
         target_paths = self.window._get_target_paths()
 
@@ -214,12 +281,14 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.populate_list()
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
-
+        self.window.add_selected_photos_to_target_list()
         self.assertEqual(self.window.apply_button.property("tone"), "warning")
+        self.assertEqual(self.window.clear_selected_gps_button.property("tone"), "danger")
 
     def test_apply_uses_separate_source_photo_for_selected_files(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
         self.window.apply_coordinates_to_selected()
 
         self.assertEqual(
@@ -229,16 +298,14 @@ class MainWindowSmokeTests(unittest.TestCase):
                 (self.paths[1], 40.486325, -111.813415),
             ],
         )
-        self.assertEqual(
-            self.window.status_message.text(),
-            "Updated GPS on 2 selected file(s).",
-        )
-
+        self.assertEqual(self.window.session.target_paths, [])
+        self.assertEqual(self.window.selected_photos_list.count(), 0)
     def test_apply_cancels_when_overwrite_confirmation_is_rejected(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.gps_by_path[self.paths[0]] = (41.0, -112.0)
         self.window.populate_list()
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
 
         with patch(
             "gui.main_window.QMessageBox.exec",
@@ -248,13 +315,13 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertEqual(dialog_exec.call_count, 1)
         self.assertEqual(self.window.exiftool.writes, [])
-        self.assertIn("cancelled", self.window.status_message.text().lower())
 
     def test_apply_overwrites_when_confirmation_is_accepted(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.gps_by_path[self.paths[0]] = (41.0, -112.0)
         self.window.populate_list()
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
 
         with patch(
             "gui.main_window.QMessageBox.exec",
@@ -285,19 +352,17 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.window._load_source_photo(no_gps_source)
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
 
         self.assertFalse(self.window.apply_button.isEnabled())
-        self.assertIn("does not contain GPS", self.window.status_message.text())
-
-    def test_invalid_clipboard_paste_sets_error_status_without_crashing(self) -> None:
+    
+    def test_invalid_clipboard_paste_does_not_crash(self) -> None:
         QApplication.clipboard().setText("not coordinates")
         self.assertFalse(self.window.paste_coordinates_button.isEnabled())
 
         self.window.paste_coordinates_from_clipboard()
 
-        self.assertIn("could not be parsed", self.window.status_message.text())
-
-    def test_valid_clipboard_paste_sets_manual_source_and_status(self) -> None:
+    def test_valid_clipboard_paste_sets_manual_source(self) -> None:
         QApplication.clipboard().setText("40.486325, -111.813415")
         self.assertTrue(self.window.paste_coordinates_button.isEnabled())
 
@@ -307,7 +372,6 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.latitude_input.text(), "40.486325")
         self.assertEqual(self.window.longitude_input.text(), "-111.813415")
         self.assertTrue(self.window.clear_manual_coordinates_button.isEnabled())
-        self.assertIn("pasted", self.window.status_message.text().lower())
 
     def test_paste_button_is_disabled_when_clipboard_is_empty(self) -> None:
         QApplication.clipboard().setText("")
@@ -335,22 +399,22 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.apply_coordinates_to_selected()
 
         self.assertEqual(self.window.exiftool.writes, [])
-        self.assertIn("select one or more photos", self.window.status_message.text().lower())
 
     def test_apply_requires_valid_manual_coordinates(self) -> None:
         self.window.manual_source_radio.setChecked(True)
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
         self.window.latitude_input.setText("bad")
         self.window.longitude_input.setText("still bad")
 
         self.window.apply_coordinates_to_selected()
 
         self.assertEqual(self.window.exiftool.writes, [])
-        self.assertIn("enter valid latitude and longitude", self.window.status_message.text().lower())
 
     def test_apply_reports_partial_write_failures(self) -> None:
         self.window._load_source_photo(self.source_path)
         self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
         self.window.exiftool.failures[self.paths[1]] = RuntimeError("disk full")
 
         self.window.apply_coordinates_to_selected()
@@ -359,8 +423,51 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.window.exiftool.writes,
             [(self.paths[0], 40.486325, -111.813415)],
         )
-        self.assertIn("Failed", self.window.status_message.text())
-        self.assertIn("photo-two.jpg: disk full", self.window.status_message.text())
+
+    def test_remove_selected_photos_button_updates_target_list(self) -> None:
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+
+        target_item = self.window.selected_photos_list.item(0)
+        target_item.setSelected(True)
+        self.window.handle_target_list_selection_changed()
+        self.window.remove_selected_photos_from_target_list()
+
+        self.assertEqual(self.window.session.target_paths, [self.paths[1]])
+        self.assertEqual(self.window.selected_photos_list.count(), 1)
+
+    def test_remove_selected_photos_button_clears_list_when_nothing_is_selected(self) -> None:
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+
+        self.window.remove_selected_photos_from_target_list()
+
+        self.assertEqual(self.window.session.target_paths, [])
+        self.assertEqual(self.window.selected_photos_list.count(), 0)
+
+    def test_clear_coordinates_from_list_updates_loaded_metadata(self) -> None:
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+
+        continue_button = object()
+        cancel_button = object()
+        with patch(
+            "gui.window_mixins.source_editor.QMessageBox.addButton",
+            side_effect=[continue_button, cancel_button],
+        ), patch(
+            "gui.window_mixins.source_editor.QMessageBox.exec",
+        ), patch(
+            "gui.window_mixins.source_editor.QMessageBox.clickedButton",
+            return_value=continue_button,
+        ):
+            self.window.clear_selected_target_coordinates()
+
+        self.assertEqual(self.window.exiftool.clears, [self.paths[0]])
+        self.assertEqual(self.gps_by_path[self.paths[0]], (None, None))
+        self.assertEqual(self.window.session.target_paths, [])
+        self.assertEqual(self.window.selected_photos_list.count(), 0)
 
 
 if __name__ == "__main__":

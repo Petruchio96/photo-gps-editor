@@ -50,6 +50,7 @@ class WorkflowControllerTests(unittest.TestCase):
         )
         session = WorkflowSession(
             selected_paths=[target_photo],
+            target_paths=[target_photo],
             source_photo_info=source_info,
             source_photo_path=source,
         )
@@ -57,6 +58,7 @@ class WorkflowControllerTests(unittest.TestCase):
         refreshed = refresh_photo_workflow(session, loader)
 
         self.assertEqual(refreshed.selected_paths, [target_photo])
+        self.assertEqual(refreshed.target_paths, [target_photo])
         self.assertEqual(refreshed.thumbnail_items, [])
         self.assertEqual(refreshed.source_photo_path, source)
         self.assertEqual(refreshed.source_photo_info, source_info)

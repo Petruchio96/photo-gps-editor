@@ -26,6 +26,7 @@ def refresh_photo_workflow(
     Refresh the selected-photo portion of the workflow while preserving source state.
     """
     photo_session = refresh_photo_session(session.selected_paths, loader)
+    photo_session.target_paths = list(session.target_paths)
     photo_session.source_photo_info = session.source_photo_info
     photo_session.source_photo_path = session.source_photo_path
     return photo_session

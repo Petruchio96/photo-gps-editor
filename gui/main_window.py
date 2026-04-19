@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -64,6 +64,8 @@ class MainWindow(
         self._syncing_target_selection = False
         self._last_status_message = ""
         self._last_status_tone = "info"
+        self._undo_gps_states: dict[Path, tuple[float | None, float | None]] = {}
+        self._redo_gps_states: dict[Path, tuple[float | None, float | None]] = {}
 
         self._build_ui()
         self._build_menu_bar()
@@ -103,11 +105,43 @@ class MainWindow(
         self.open_action.triggered.connect(self.select_photos)
         file_menu.addAction(self.open_action)
 
+        self.remove_photos_action = QAction("Remove Photos", self)
+        self.remove_photos_action.setEnabled(False)
+        self.remove_photos_action.triggered.connect(self.remove_all_photos_from_browser_list)
+        file_menu.addAction(self.remove_photos_action)
+
         file_menu.addSeparator()
 
         self.exit_action = QAction("Exit", self)
+        self.exit_action.setShortcuts(QKeySequence.StandardKey.Quit)
         self.exit_action.triggered.connect(self.close)
         file_menu.addAction(self.exit_action)
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcuts(QKeySequence.StandardKey.Undo)
+        self.undo_action.setEnabled(False)
+        self.undo_action.triggered.connect(self.undo_gps_edit)
+        edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcuts(QKeySequence.StandardKey.Redo)
+        self.redo_action.setEnabled(False)
+        self.redo_action.triggered.connect(self.redo_gps_edit)
+        edit_menu.addAction(self.redo_action)
+
+        edit_menu.addSeparator()
+
+        self.copy_action = QAction("Copy", self)
+        self.copy_action.setEnabled(False)
+        self.copy_action.triggered.connect(self.copy_selected_photo_gps_coordinates)
+        edit_menu.addAction(self.copy_action)
+
+        self.paste_action = QAction("Paste", self)
+        self.paste_action.setEnabled(False)
+        self.paste_action.triggered.connect(self.paste_coordinates_from_clipboard)
+        edit_menu.addAction(self.paste_action)
 
         help_menu = self.menuBar().addMenu("&Help")
 
@@ -127,7 +161,10 @@ class MainWindow(
 
     def _update_selection_metrics(self) -> None:
         loaded_count = len(self.session.selected_paths)
-        selected_count = len(self.list_widget.selectedItems())
+        selected_count = len(self.get_selected_paths())
+        removes_partial_selection = 0 < selected_count < loaded_count
+        gps_count = sum(1 for item in self.session.thumbnail_items if item.has_gps)
+        needs_gps_count = max(0, loaded_count - gps_count)
 
         if loaded_count == 0:
             self.browser_hint.setText(
@@ -135,11 +172,102 @@ class MainWindow(
             )
         else:
             self.browser_hint.setText(
-                "Tip: use Shift or Ctrl to select photos on the left, then add them to the update list on the right."
+                f"{loaded_count} photos loaded. {needs_gps_count} need GPS; "
+                f"{gps_count} already have GPS. Use Shift or Ctrl to select photos."
             )
 
         self.select_all_button.setEnabled(loaded_count > 0)
         self.clear_selection_button.setEnabled(selected_count > 0)
+        if hasattr(self, "remove_photos_action"):
+            self.remove_photos_action.setEnabled(loaded_count > 0)
+        if hasattr(self, "copy_action"):
+            self.copy_action.setEnabled(self._selected_browser_gps_coordinates() is not None)
+        self.remove_loaded_photos_button.setEnabled(loaded_count > 0)
+        self.remove_loaded_photos_button.setProperty(
+            "tone",
+            "primary" if loaded_count > 0 else "neutral",
+        )
+        self.remove_loaded_photos_button.setText(
+            "Remove Selected Photos" if removes_partial_selection else "Remove All Photos"
+        )
+        self.remove_loaded_photos_button.style().unpolish(self.remove_loaded_photos_button)
+        self.remove_loaded_photos_button.style().polish(self.remove_loaded_photos_button)
+        self.remove_loaded_photos_button.update()
+        self._update_undo_redo_actions()
+
+    def _gps_states_for_paths(
+        self,
+        paths: list[Path],
+    ) -> dict[Path, tuple[float | None, float | None]]:
+        states: dict[Path, tuple[float | None, float | None]] = {}
+        for path in paths:
+            info = self.session.loaded_photo_infos.get(path)
+            if info is None:
+                states[path] = (None, None)
+            else:
+                states[path] = (info.current_latitude, info.current_longitude)
+        return states
+
+    def _remember_gps_edit(
+        self,
+        *,
+        before_states: dict[Path, tuple[float | None, float | None]],
+        after_states: dict[Path, tuple[float | None, float | None]],
+    ) -> None:
+        self._undo_gps_states = before_states
+        self._redo_gps_states = after_states
+        self._update_undo_redo_actions()
+
+    def _clear_gps_edit_history(self) -> None:
+        self._undo_gps_states = {}
+        self._redo_gps_states = {}
+        self._update_undo_redo_actions()
+
+    def _update_undo_redo_actions(self) -> None:
+        if hasattr(self, "undo_action"):
+            self.undo_action.setEnabled(bool(self._undo_gps_states))
+        if hasattr(self, "redo_action"):
+            self.redo_action.setEnabled(
+                bool(self._redo_gps_states) and not bool(self._undo_gps_states)
+            )
+
+    def undo_gps_edit(self) -> None:
+        if not self._undo_gps_states:
+            return
+
+        undo_states = dict(self._undo_gps_states)
+        redo_states = dict(self._redo_gps_states)
+        self._restore_gps_states(undo_states)
+        self._undo_gps_states = {}
+        self._redo_gps_states = redo_states
+        self._update_undo_redo_actions()
+        self._set_status_message("GPS change undone.", "info")
+
+    def redo_gps_edit(self) -> None:
+        if not self._redo_gps_states or self._undo_gps_states:
+            return
+
+        redo_states = dict(self._redo_gps_states)
+        undo_states = self._gps_states_for_paths(list(redo_states))
+        self._restore_gps_states(redo_states)
+        self._undo_gps_states = undo_states
+        self._redo_gps_states = redo_states
+        self._update_undo_redo_actions()
+        self._set_status_message("GPS change redone.", "info")
+
+    def _restore_gps_states(
+        self,
+        states: dict[Path, tuple[float | None, float | None]],
+    ) -> None:
+        for path, (latitude, longitude) in states.items():
+            if latitude is None or longitude is None:
+                self.exiftool.clear_gps(path)
+            else:
+                self.exiftool.write_gps(path, latitude, longitude)
+
+        self.populate_list()
+        self.list_widget.clearSelection()
+        self.update_details_panel()
 
     def _default_photo_directory(self) -> Path:
         pictures_dir = Path.home() / "Pictures"
@@ -182,7 +310,9 @@ class MainWindow(
             (
                 f"Photo GPS Editor {APP_VERSION}\n\n"
                 "A desktop application for viewing photo GPS metadata, "
-                "copying coordinates, and applying GPS data to one or more selected files."
+                "copying coordinates, and applying GPS data to one or more selected files.\n\n"
+                "Instructions and more information:\n"
+                "https://github.com/Petruchio96/photo-gps-editor"
             ),
         )
 

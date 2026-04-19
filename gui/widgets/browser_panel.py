@@ -21,6 +21,21 @@ if TYPE_CHECKING:
     from gui.main_window import MainWindow
 
 
+class ThumbnailGrid(QListWidget):
+    """
+    QListWidget variant that lets the window keep full-width section rows sized
+    correctly after the icon grid is resized.
+    """
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__()
+        self._window = window
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._window._refresh_thumbnail_group_header_sizes()
+
+
 def build_browser_panel(window: "MainWindow") -> QWidget:
     """
     Create the thumbnail browser panel shown on the left side.
@@ -44,9 +59,14 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     header_row = QHBoxLayout()
     header_row.setSpacing(10)
     header_row.addWidget(window.select_button)
+    window.remove_loaded_photos_button = QPushButton("Remove All Photos")
+    window.remove_loaded_photos_button.setProperty("tone", "neutral")
+    window.remove_loaded_photos_button.setEnabled(False)
+    window.remove_loaded_photos_button.clicked.connect(window.remove_photos_from_browser_list)
+    header_row.addWidget(window.remove_loaded_photos_button)
     header_row.addStretch(1)
 
-    window.list_widget = QListWidget()
+    window.list_widget = ThumbnailGrid(window)
     window.list_widget.setObjectName("thumbnailGrid")
     window.list_widget.setViewMode(QListWidget.IconMode)
     window.list_widget.setIconSize(QSize(128, 128))

@@ -107,6 +107,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.choose_source_button.clicked.connect(window.choose_source_photo)
 
     window.clear_source_button = QPushButton("Clear Source")
+    window.clear_source_button.setProperty("tone", "neutral")
     window.clear_source_button.setEnabled(False)
     window.clear_source_button.clicked.connect(window.clear_source_photo)
 
@@ -129,8 +130,8 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
 
     window.latitude_input = QLineEdit()
     window.longitude_input = QLineEdit()
-    window.latitude_input.setPlaceholderText("e.g. 40.486325")
-    window.longitude_input.setPlaceholderText("e.g. -111.813415")
+    window.latitude_input.setPlaceholderText("e.g. 80.0000")
+    window.longitude_input.setPlaceholderText("e.g. 100.0000")
     window.latitude_input.editingFinished.connect(window.validate_latitude_field)
     window.longitude_input.editingFinished.connect(window.validate_longitude_field)
     window.latitude_input.textChanged.connect(
@@ -141,6 +142,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     )
 
     window.clear_manual_coordinates_button = QPushButton("Clear Coordinates")
+    window.clear_manual_coordinates_button.setProperty("tone", "neutral")
     window.clear_manual_coordinates_button.setEnabled(False)
     window.clear_manual_coordinates_button.clicked.connect(
         window.clear_manual_coordinates
@@ -180,6 +182,19 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
         window.handle_target_list_selection_changed
     )
 
+    window.selected_photos_empty_label = QLabel(
+        "Add photos from the browser to build an update list."
+    )
+    window.selected_photos_empty_label.setObjectName("selectedPhotosEmpty")
+    window.selected_photos_empty_label.setAlignment(Qt.AlignCenter)
+    window.selected_photos_empty_label.setWordWrap(True)
+
+    window.selected_photos_stack = QStackedWidget()
+    window.selected_photos_stack.addWidget(window.selected_photos_empty_label)
+    window.selected_photos_stack.addWidget(window.selected_photos_list)
+    window.selected_photos_stack.setMaximumHeight(124)
+    window.selected_photos_stack.setMinimumHeight(124)
+
     window.selected_photos_title_label = QLabel(
         "Selected Photos to Change GPS Coordinates"
     )
@@ -208,7 +223,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     layout.addWidget(inspector_note)
     layout.addWidget(source_group)
     layout.addWidget(window.selected_photos_title_label)
-    layout.addWidget(window.selected_photos_list)
+    layout.addWidget(window.selected_photos_stack)
     layout.addWidget(window.remove_selected_photos_button)
     layout.addWidget(window.clear_selected_gps_button)
     layout.addWidget(window.apply_button)

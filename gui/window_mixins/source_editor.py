@@ -35,11 +35,18 @@ class SourceEditorMixin:
         )
 
     def _update_target_selection_actions(self) -> None:
-        has_target_photos = bool(self._get_target_paths())
+        target_paths = self._get_target_paths()
+        has_target_photos = bool(target_paths)
+        selected_count = len(self.get_selected_target_paths())
+        removes_partial_selection = 0 < selected_count < len(target_paths)
+
         self.remove_selected_photos_button.setEnabled(has_target_photos)
         self.remove_selected_photos_button.setProperty(
             "tone",
             "primary" if has_target_photos else "neutral",
+        )
+        self.remove_selected_photos_button.setText(
+            "Remove Selected Photos" if removes_partial_selection else "Remove All Photos"
         )
         self.remove_selected_photos_button.style().unpolish(self.remove_selected_photos_button)
         self.remove_selected_photos_button.style().polish(self.remove_selected_photos_button)
@@ -50,7 +57,10 @@ class SourceEditorMixin:
         return self.parse_coordinate_text(clipboard_text) is not None
 
     def _update_clipboard_buttons(self) -> None:
-        self.paste_coordinates_button.setEnabled(self._clipboard_has_valid_coordinates())
+        can_paste_coordinates = self._clipboard_has_valid_coordinates()
+        self.paste_coordinates_button.setEnabled(can_paste_coordinates)
+        if hasattr(self, "paste_action"):
+            self.paste_action.setEnabled(can_paste_coordinates)
 
     def choose_source_photo(self) -> None:
         source_path = self._pick_photo_file("Choose Source Photo")
@@ -252,9 +262,14 @@ class SourceEditorMixin:
         if confirmation_dialog.clickedButton() is not continue_button:
             return
 
+        before_states = self._gps_states_for_paths(paths_with_gps)
         for path in paths_with_gps:
             self.exiftool.clear_gps(path)
 
+        self._remember_gps_edit(
+            before_states=before_states,
+            after_states={path: (None, None) for path in paths_with_gps},
+        )
         self.session = refresh_photo_workflow(
             self.session,
             self.loader,
@@ -277,6 +292,12 @@ class SourceEditorMixin:
     def _apply_editor_panel_state(self) -> None:
         panel_state = self._build_editor_panel_state()
         selected_target_paths = self.get_selected_target_paths()
+        self.selected_photos_title_label.setText(
+            f"Selected Photos to Change GPS Coordinates ({panel_state.selected_photo_count})"
+        )
+        self.selected_photos_stack.setCurrentIndex(
+            1 if panel_state.selected_photo_count else 0
+        )
         self.active_source_coordinates.setText(panel_state.source_summary)
         self._syncing_target_selection = True
         try:
@@ -299,9 +320,28 @@ class SourceEditorMixin:
         finally:
             self._syncing_target_selection = False
         self.clear_source_button.setEnabled(panel_state.can_clear_source)
-        self.clear_manual_coordinates_button.setEnabled(
-            bool(self.latitude_input.text().strip() or self.longitude_input.text().strip())
+        self.clear_source_button.setProperty(
+            "tone",
+            "primary" if panel_state.can_clear_source else "neutral",
         )
+        self.clear_source_button.style().unpolish(self.clear_source_button)
+        self.clear_source_button.style().polish(self.clear_source_button)
+        self.clear_source_button.update()
+        can_clear_manual_coordinates = bool(
+            self.latitude_input.text().strip() or self.longitude_input.text().strip()
+        )
+        self.clear_manual_coordinates_button.setEnabled(can_clear_manual_coordinates)
+        self.clear_manual_coordinates_button.setProperty(
+            "tone",
+            "primary" if can_clear_manual_coordinates else "neutral",
+        )
+        self.clear_manual_coordinates_button.style().unpolish(
+            self.clear_manual_coordinates_button
+        )
+        self.clear_manual_coordinates_button.style().polish(
+            self.clear_manual_coordinates_button
+        )
+        self.clear_manual_coordinates_button.update()
         self._update_clipboard_buttons()
         self.add_selected_button.setEnabled(panel_state.can_add_selected_photos)
         self.clear_selected_gps_button.setEnabled(panel_state.can_clear_list_gps)

@@ -22,6 +22,7 @@ THUMBNAIL_LATITUDE_ROLE = Qt.UserRole + 1
 THUMBNAIL_LONGITUDE_ROLE = Qt.UserRole + 2
 THUMBNAIL_ITEM_SIZE = QSize(170, 190)
 GPS_HEADER_HEIGHT = 52
+GPS_HEADER_MIN_WIDTH = THUMBNAIL_ITEM_SIZE.width()
 
 
 class PhotoListMixin:
@@ -44,12 +45,35 @@ class PhotoListMixin:
         self.list_widget.clearSelection()
         self.update_details_panel()
 
+    def remove_photos_from_browser_list(self) -> None:
+        paths_to_remove = set(self.get_selected_paths())
+        if not paths_to_remove:
+            paths_to_remove = set(self.session.selected_paths)
+
+        self._remove_browser_paths(paths_to_remove)
+
+    def remove_all_photos_from_browser_list(self) -> None:
+        self._remove_browser_paths(set(self.session.selected_paths))
+
+    def _remove_browser_paths(self, paths_to_remove: set[Path]) -> None:
+        if not paths_to_remove:
+            return
+
+        self.session.selected_paths = [
+            path for path in self.session.selected_paths if path not in paths_to_remove
+        ]
+        self.session.target_paths = [
+            path for path in self.session.target_paths if path not in paths_to_remove
+        ]
+        self.populate_list()
+
     def select_photos(self) -> None:
         file_paths = self._pick_photo_files("Choose Photos")
 
         if not file_paths:
             return
 
+        self._clear_gps_edit_history()
         self.session.selected_paths = file_paths
         self.populate_list()
 
@@ -65,11 +89,13 @@ class PhotoListMixin:
 
     def _render_photo_list(self) -> None:
         self.list_widget.clear()
+        self._gps_group_header_items = []
         gps_header_added = False
+        gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
 
         for item_data in self.session.thumbnail_items:
             if item_data.has_gps and not gps_header_added:
-                self._build_gps_group_header_item()
+                self._build_gps_group_header_item(gps_count)
                 gps_header_added = True
 
             path = item_data.path
@@ -98,20 +124,27 @@ class PhotoListMixin:
             if (path_text := item.data(THUMBNAIL_PATH_ROLE)) is not None
         ]
 
-    def _build_gps_group_header_item(self) -> QListWidgetItem:
+    def _build_gps_group_header_item(self, gps_count: int) -> QListWidgetItem:
         item = QListWidgetItem()
         item.setFlags(Qt.NoItemFlags)
-        item.setSizeHint(
-            QSize(
-                max(self.list_widget.viewport().width() - 24, THUMBNAIL_ITEM_SIZE.width()),
-                GPS_HEADER_HEIGHT,
-            )
-        )
+        item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.addItem(item)
-        self.list_widget.setItemWidget(item, self._build_gps_group_header_widget())
+        self.list_widget.setItemWidget(item, self._build_gps_group_header_widget(gps_count))
+        self._gps_group_header_items.append(item)
         return item
 
-    def _build_gps_group_header_widget(self) -> QWidget:
+    def _thumbnail_group_header_size(self) -> QSize:
+        return QSize(
+            max(self.list_widget.viewport().width(), GPS_HEADER_MIN_WIDTH),
+            GPS_HEADER_HEIGHT,
+        )
+
+    def _refresh_thumbnail_group_header_sizes(self) -> None:
+        for item in getattr(self, "_gps_group_header_items", []):
+            item.setSizeHint(self._thumbnail_group_header_size())
+        self.list_widget.doItemsLayout()
+
+    def _build_gps_group_header_widget(self, gps_count: int) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 4, 0, 0)
@@ -122,7 +155,7 @@ class PhotoListMixin:
         line.setFrameShadow(QFrame.Plain)
         line.setFixedHeight(1)
 
-        label = QLabel("Photos with GPS Coordinates")
+        label = QLabel(f"Photos with GPS Coordinates ({gps_count})")
         label.setObjectName("thumbnailGroupHeader")
         label.setWordWrap(False)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -177,3 +210,26 @@ class PhotoListMixin:
             return
 
         QApplication.clipboard().setText(f"{latitude:.6f}, {longitude:.6f}")
+
+    def copy_selected_photo_gps_coordinates(self) -> None:
+        coordinates = self._selected_browser_gps_coordinates()
+        if coordinates is None:
+            return
+
+        latitude, longitude = coordinates
+        self.copy_gps_coordinates(latitude, longitude)
+
+    def _selected_browser_gps_coordinates(self) -> tuple[float, float] | None:
+        selected_paths = self.get_selected_paths()
+        if len(selected_paths) != 1:
+            return None
+
+        info = self.session.loaded_photo_infos.get(selected_paths[0])
+        if (
+            info is None
+            or info.current_latitude is None
+            or info.current_longitude is None
+        ):
+            return None
+
+        return info.current_latitude, info.current_longitude

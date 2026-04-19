@@ -165,17 +165,17 @@ QPushButton[tone="neutral"]:disabled {
     border-color: #d7dee5;
 }
 QPushButton[tone="primary"] {
-    background: #1f6feb;
-    color: white;
-    border-color: #1f6feb;
+    background: #e8f1ff;
+    color: #1459bd;
+    border-color: #8cb7f0;
 }
 QPushButton[tone="primary"]:hover {
-    background: #165dc5;
-    border-color: #165dc5;
+    background: #dcebff;
+    border-color: #6ea1e8;
 }
 QPushButton[tone="primary"]:pressed {
-    background: #124da6;
-    border-color: #124da6;
+    background: #c8ddff;
+    border-color: #4f8be0;
 }
 QPushButton[tone="neutral"] {
     background: #ffffff;
@@ -224,6 +224,13 @@ QListWidget#selectedPhotosList {
     border-radius: 12px;
     padding: 8px;
     outline: none;
+}
+QLabel#selectedPhotosEmpty {
+    color: #617084;
+    background: #ffffff;
+    border: 1px dashed #ccd7e2;
+    border-radius: 12px;
+    padding: 16px;
 }
 QListWidget#thumbnailGrid {
     background: #ffffff;

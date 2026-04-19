@@ -65,6 +65,7 @@ class ApplyWorkflowMixin:
                 )
                 return
 
+        before_states = self._gps_states_for_paths(preparation.target_paths)
         apply_result = execute_apply_workflow(
             session=self.session,
             preparation=preparation,
@@ -80,5 +81,19 @@ class ApplyWorkflowMixin:
         self.update_details_panel()
 
         result = apply_result.execution_result
+        if result.successful_paths:
+            coordinates = preparation.coordinates
+            self._remember_gps_edit(
+                before_states={
+                    path: before_states[path] for path in result.successful_paths
+                },
+                after_states={
+                    path: (coordinates.latitude, coordinates.longitude)
+                    for path in result.successful_paths
+                },
+            )
+        else:
+            self._clear_gps_edit_history()
+
         if result.failed_paths:
             self._last_apply_failures = list(result.failed_paths)

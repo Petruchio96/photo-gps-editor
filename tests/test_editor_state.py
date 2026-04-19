@@ -19,6 +19,8 @@ class EditorStateTests(unittest.TestCase):
 
         self.assertEqual(state.source_summary, "Source GPS Coordinates: Not set")
         self.assertEqual(state.selected_photo_names, [])
+        self.assertEqual(state.selected_photo_count, 0)
+        self.assertEqual(state.selected_gps_count, 0)
         self.assertFalse(state.can_clear_source)
         self.assertFalse(state.can_apply)
         self.assertEqual(state.apply_tone, "safe")
@@ -49,6 +51,8 @@ class EditorStateTests(unittest.TestCase):
             "Source GPS Coordinates: 40.500000, -111.800000",
         )
         self.assertEqual(state.selected_photo_names, ["target-photo.jpg"])
+        self.assertEqual(state.selected_photo_count, 1)
+        self.assertEqual(state.selected_gps_count, 0)
         self.assertTrue(state.can_clear_source)
         self.assertTrue(state.can_apply)
         self.assertEqual(state.apply_tone, "safe")
@@ -66,6 +70,8 @@ class EditorStateTests(unittest.TestCase):
 
         self.assertEqual(state.source_summary, "Source GPS Coordinates: Not set")
         self.assertEqual(state.selected_photo_names, ["target-photo.jpg"])
+        self.assertEqual(state.selected_photo_count, 1)
+        self.assertEqual(state.selected_gps_count, 0)
         self.assertFalse(state.can_apply)
         self.assertEqual(state.apply_tone, "safe")
 
@@ -85,6 +91,8 @@ class EditorStateTests(unittest.TestCase):
             "Source GPS Coordinates: 40.486325, -111.813415",
         )
         self.assertEqual(state.selected_photo_names, ["target-photo.jpg"])
+        self.assertEqual(state.selected_photo_count, 1)
+        self.assertEqual(state.selected_gps_count, 0)
         self.assertTrue(state.can_apply)
         self.assertEqual(state.apply_tone, "safe")
 
@@ -112,6 +120,8 @@ class EditorStateTests(unittest.TestCase):
         self.assertTrue(state.can_apply)
         self.assertEqual(state.apply_tone, "warning")
         self.assertTrue(state.can_clear_list_gps)
+        self.assertEqual(state.selected_photo_count, 1)
+        self.assertEqual(state.selected_gps_count, 1)
 
 
 if __name__ == "__main__":

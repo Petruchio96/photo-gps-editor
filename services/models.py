@@ -35,6 +35,7 @@ class ApplyPreparation:
 @dataclass(frozen=True)
 class ApplyExecutionResult:
     success_count: int
+    successful_paths: list[Path] = field(default_factory=list)
     failed_paths: list[str] = field(default_factory=list)
 
 

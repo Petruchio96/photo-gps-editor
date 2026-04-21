@@ -265,9 +265,9 @@ class SourceEditorMixin:
             before_states=before_states,
             after_states={path: (None, None) for path in paths_with_gps},
         )
-        self.session = self.workflow.refresh_photo_workflow(self.session)
         self._clear_target_list()
-        self.populate_list()
+        self.session = self.workflow.refresh_photo_workflow(self.session)
+        self._render_current_photo_session()
         self.list_widget.clearSelection()
         self.update_details_panel()
 

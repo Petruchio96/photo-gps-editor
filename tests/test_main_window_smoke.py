@@ -38,8 +38,10 @@ class FakeExifTool:
 class FakePhotoLoader:
     def __init__(self, gps_by_path: dict[Path, tuple[float | None, float | None]]) -> None:
         self.gps_by_path = gps_by_path
+        self.calls: list[Path] = []
 
     def load_photo_info(self, path: Path) -> PhotoInfo:
+        self.calls.append(path)
         latitude, longitude = self.gps_by_path[path]
         return PhotoInfo(
             path=path,
@@ -634,6 +636,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.populate_list()
         self.window.select_all_photos()
         self.window.add_selected_photos_to_target_list()
+        self.window.loader.calls.clear()
 
         continue_button = object()
         cancel_button = object()
@@ -651,6 +654,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.window.clear_selected_target_coordinates()
 
         self.assertEqual(self.window.exiftool.clears, [self.paths[0]])
+        self.assertEqual(self.window.loader.calls, self.paths)
         self.assertEqual(self.gps_by_path[self.paths[0]], (None, None))
         self.assertEqual(self.window.session.target_paths, [])
         self.assertEqual(self.window.selected_photos_list.count(), 0)

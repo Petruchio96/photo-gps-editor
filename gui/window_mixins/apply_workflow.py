@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QMessageBox
 
-from gui.presenters.thumbnail_items import build_thumbnail_item_data_list
 from services.target_paths_service import get_target_paths
 
 
@@ -71,11 +70,7 @@ class ApplyWorkflowMixin:
         )
         self.session = apply_result.session
         self._clear_target_list()
-        self.session.thumbnail_items = build_thumbnail_item_data_list(
-            self.session.loaded_photos
-        )
-        self._render_photo_list()
-        self.update_details_panel()
+        self._render_current_photo_session()
 
         result = apply_result.execution_result
         if result.successful_paths:

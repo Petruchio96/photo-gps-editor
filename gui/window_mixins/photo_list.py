@@ -77,36 +77,46 @@ class PhotoListMixin:
         self.populate_list()
 
     def populate_list(self) -> None:
+        self._refresh_photo_session()
+        self._render_current_photo_session()
+
+    def _refresh_photo_session(self) -> None:
         self.session = self.workflow.refresh_photo_workflow(self.session)
+
+    def _render_current_photo_session(self) -> None:
         self.session.thumbnail_items = build_thumbnail_item_data_list(
             self.session.loaded_photos
         )
         self._render_photo_list()
 
     def _render_photo_list(self) -> None:
-        self.list_widget.clear()
-        self._gps_group_header_items = []
-        gps_header_added = False
-        gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
+        self.list_widget.setUpdatesEnabled(False)
+        try:
+            self.list_widget.clear()
+            self._gps_group_header_items = []
+            gps_header_added = False
+            gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
 
-        for item_data in self.session.thumbnail_items:
-            if item_data.has_gps and not gps_header_added:
-                self._build_gps_group_header_item(gps_count)
-                gps_header_added = True
+            for item_data in self.session.thumbnail_items:
+                if item_data.has_gps and not gps_header_added:
+                    self._build_gps_group_header_item(gps_count)
+                    gps_header_added = True
 
-            path = item_data.path
-            icon = self.thumbnail_loader.load_icon(
-                path,
-                has_gps=item_data.has_gps,
-            )
+                path = item_data.path
+                icon = self.thumbnail_loader.load_icon(
+                    path,
+                    has_gps=item_data.has_gps,
+                )
 
-            item = QListWidgetItem(icon, item_data.filename)
-            item.setData(THUMBNAIL_PATH_ROLE, str(path))
-            item.setData(THUMBNAIL_LATITUDE_ROLE, item_data.latitude)
-            item.setData(THUMBNAIL_LONGITUDE_ROLE, item_data.longitude)
-            item.setToolTip(item_data.tooltip)
-            item.setSizeHint(THUMBNAIL_ITEM_SIZE)
-            self.list_widget.addItem(item)
+                item = QListWidgetItem(icon, item_data.filename)
+                item.setData(THUMBNAIL_PATH_ROLE, str(path))
+                item.setData(THUMBNAIL_LATITUDE_ROLE, item_data.latitude)
+                item.setData(THUMBNAIL_LONGITUDE_ROLE, item_data.longitude)
+                item.setToolTip(item_data.tooltip)
+                item.setSizeHint(THUMBNAIL_ITEM_SIZE)
+                self.list_widget.addItem(item)
+        finally:
+            self.list_widget.setUpdatesEnabled(True)
 
         self._refresh_source_preview()
         self.update_details_panel()

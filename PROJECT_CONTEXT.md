@@ -189,6 +189,7 @@ Append progress here after each phase:
 - Phase 3 complete: added backend-owned `PhotoMetadataCache`, routed selected-photo refresh/apply reloads through cached metadata, and covered unchanged-file reuse, changed-file invalidation, multi-file cache access, and facade cache coordination.
 - Phase 4 complete: added ExifTool bulk GPS reads, routed uncached selected-photo loads through bulk `PhotoLoader.load_photo_infos`, preserved unsupported-file handling and single-file fallback paths, and covered bulk result mapping, missing-record fallback, cache-miss batching, and bulk failure fallback.
 - Phase 5 complete: moved undo/redo GPS restore execution behind `PhotoWorkflowFacade.restore_gps_states_workflow`, kept GUI action wiring/status behavior in the desktop layer, and added backend/facade tests for write, clear, and refresh behavior.
+- Phase 6 complete: separated selected-photo session refresh, thumbnail item creation, and list rendering helpers; avoided a duplicate refresh/rebuild after clearing target coordinates; and reduced redraw churn while rebuilding the left browser list.
 
 ---
 

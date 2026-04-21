@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui.presenters.thumbnail_items import build_thumbnail_item_data_list
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
@@ -264,10 +263,7 @@ class MainWindow(
             session=self.session,
             states=states,
         )
-        self.session.thumbnail_items = build_thumbnail_item_data_list(
-            self.session.loaded_photos
-        )
-        self._render_photo_list()
+        self._render_current_photo_session()
         self.list_widget.clearSelection()
         self.update_details_panel()
 

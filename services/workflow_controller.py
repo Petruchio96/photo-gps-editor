@@ -133,3 +133,23 @@ def execute_apply_workflow(
         session=refreshed_session,
         execution_result=execution_result,
     )
+
+
+def restore_gps_states_workflow(
+    *,
+    session: WorkflowSession,
+    states: dict[Path, tuple[float | None, float | None]],
+    writer,
+    loader,
+    cache=None,
+) -> WorkflowSession:
+    """
+    Restore GPS metadata states and refresh selected-photo workflow state.
+    """
+    for path, (latitude, longitude) in states.items():
+        if latitude is None or longitude is None:
+            writer.clear_gps(path)
+        else:
+            writer.write_gps(path, latitude, longitude)
+
+    return refresh_photo_workflow(session, loader, cache)

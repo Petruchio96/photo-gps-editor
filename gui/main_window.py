@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.presenters.thumbnail_items import build_thumbnail_item_data_list
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
@@ -259,13 +260,14 @@ class MainWindow(
         self,
         states: dict[Path, tuple[float | None, float | None]],
     ) -> None:
-        for path, (latitude, longitude) in states.items():
-            if latitude is None or longitude is None:
-                self.exiftool.clear_gps(path)
-            else:
-                self.exiftool.write_gps(path, latitude, longitude)
-
-        self.populate_list()
+        self.session = self.workflow.restore_gps_states_workflow(
+            session=self.session,
+            states=states,
+        )
+        self.session.thumbnail_items = build_thumbnail_item_data_list(
+            self.session.loaded_photos
+        )
+        self._render_photo_list()
         self.list_widget.clearSelection()
         self.update_details_panel()
 

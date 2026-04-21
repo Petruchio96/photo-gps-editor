@@ -10,6 +10,7 @@ from services.workflow_controller import (
     load_source_workflow,
     prepare_apply_workflow,
     refresh_photo_workflow,
+    restore_gps_states_workflow,
 )
 from services.workflow_facade import PhotoWorkflowFacade
 
@@ -27,12 +28,16 @@ class StubLoader:
 class StubWriter:
     def __init__(self, failing_paths: set[Path] | None = None) -> None:
         self.calls: list[tuple[Path, float, float]] = []
+        self.clear_calls: list[Path] = []
         self.failing_paths = failing_paths or set()
 
     def write_gps(self, path: Path, latitude: float, longitude: float) -> None:
         self.calls.append((path, latitude, longitude))
         if path in self.failing_paths:
             raise RuntimeError("boom")
+
+    def clear_gps(self, path: Path) -> None:
+        self.clear_calls.append(path)
 
 
 class WorkflowControllerTests(unittest.TestCase):
@@ -166,6 +171,38 @@ class WorkflowControllerTests(unittest.TestCase):
         self.assertEqual(result.session.source_photo_path, Path("/tmp/source.jpg"))
         self.assertIn(target_photo, result.session.loaded_photo_infos)
 
+    def test_restore_gps_states_workflow_writes_and_clears_then_refreshes(self) -> None:
+        write_path = Path("/tmp/write.jpg")
+        clear_path = Path("/tmp/clear.jpg")
+        session = WorkflowSession(selected_paths=[write_path, clear_path])
+        loader = StubLoader(
+            {
+                write_path: PhotoInfo(
+                    path=write_path,
+                    file_type="JPG",
+                    current_latitude=40.5,
+                    current_longitude=-111.8,
+                ),
+                clear_path: PhotoInfo(path=clear_path, file_type="JPG"),
+            }
+        )
+        writer = StubWriter()
+
+        refreshed = restore_gps_states_workflow(
+            session=session,
+            states={
+                write_path: (40.5, -111.8),
+                clear_path: (None, None),
+            },
+            writer=writer,
+            loader=loader,
+        )
+
+        self.assertEqual(writer.calls, [(write_path, 40.5, -111.8)])
+        self.assertEqual(writer.clear_calls, [clear_path])
+        self.assertEqual(refreshed.selected_paths, [write_path, clear_path])
+        self.assertEqual(loader.calls, [write_path, clear_path])
+
 
 class PhotoWorkflowFacadeTests(unittest.TestCase):
     def test_facade_refresh_uses_configured_loader(self) -> None:
@@ -237,6 +274,30 @@ class PhotoWorkflowFacadeTests(unittest.TestCase):
             facade.refresh_photo_workflow(session)
 
         self.assertEqual(loader.calls, [target_photo])
+
+    def test_facade_restore_gps_states_uses_configured_writer_and_loader(self) -> None:
+        target_photo = Path("/tmp/target-photo.jpg")
+        loader = StubLoader(
+            {
+                target_photo: PhotoInfo(
+                    path=target_photo,
+                    file_type="JPG",
+                    current_latitude=40.5,
+                    current_longitude=-111.8,
+                )
+            }
+        )
+        writer = StubWriter()
+        facade = PhotoWorkflowFacade(loader=loader, writer=writer)
+        session = WorkflowSession(selected_paths=[target_photo])
+
+        refreshed = facade.restore_gps_states_workflow(
+            session=session,
+            states={target_photo: (40.5, -111.8)},
+        )
+
+        self.assertEqual(writer.calls, [(target_photo, 40.5, -111.8)])
+        self.assertIn(target_photo, refreshed.loaded_photo_infos)
 
 
 if __name__ == "__main__":

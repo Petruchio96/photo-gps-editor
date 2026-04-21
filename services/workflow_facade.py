@@ -22,6 +22,7 @@ from services.workflow_controller import (
     load_source_workflow,
     prepare_apply_workflow,
     refresh_photo_workflow,
+    restore_gps_states_workflow,
 )
 
 
@@ -74,6 +75,20 @@ class PhotoWorkflowFacade:
         return execute_apply_workflow(
             session=session,
             preparation=preparation,
+            writer=self.writer,
+            loader=self.loader,
+            cache=self.metadata_cache,
+        )
+
+    def restore_gps_states_workflow(
+        self,
+        *,
+        session: WorkflowSession,
+        states: dict[Path, tuple[float | None, float | None]],
+    ) -> WorkflowSession:
+        return restore_gps_states_workflow(
+            session=session,
+            states=states,
             writer=self.writer,
             loader=self.loader,
             cache=self.metadata_cache,

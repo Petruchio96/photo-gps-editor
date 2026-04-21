@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PIL import Image
 from PySide6.QtWidgets import QApplication
 
-from core.thumbnail_loader import ThumbnailLoader
+from gui.thumbnail_loader import ThumbnailLoader
 
 
 class ThumbnailLoaderTests(unittest.TestCase):

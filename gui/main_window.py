@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 
 from core.exiftool_wrapper import ExifToolWrapper
 from core.photo_loader import PhotoLoader
-from core.thumbnail_loader import ThumbnailLoader
 from gui.styles import APP_STYLESHEET
+from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
 from gui.widgets.editor_panel import build_editor_panel
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin

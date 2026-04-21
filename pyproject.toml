@@ -3,3 +3,9 @@ name = "photo-gps-editor"
 version = "1.1"
 description = "Desktop app for changing GPS metadata in image files"
 requires-python = ">=3.12"
+
+[project.optional-dependencies]
+desktop = [
+    "PySide6",
+    "Pillow",
+]

@@ -190,6 +190,8 @@ Append progress here after each phase:
 - Phase 4 complete: added ExifTool bulk GPS reads, routed uncached selected-photo loads through bulk `PhotoLoader.load_photo_infos`, preserved unsupported-file handling and single-file fallback paths, and covered bulk result mapping, missing-record fallback, cache-miss batching, and bulk failure fallback.
 - Phase 5 complete: moved undo/redo GPS restore execution behind `PhotoWorkflowFacade.restore_gps_states_workflow`, kept GUI action wiring/status behavior in the desktop layer, and added backend/facade tests for write, clear, and refresh behavior.
 - Phase 6 complete: separated selected-photo session refresh, thumbnail item creation, and list rendering helpers; avoided a duplicate refresh/rebuild after clearing target coordinates; and reduced redraw churn while rebuilding the left browser list.
+- Phase 7 evaluated: no background worker was added because Phase 3/4 already reduced metadata load cost, thumbnail rendering still depends on Qt GUI objects, and adding threading now would increase complexity without a clearly measured benefit.
+- Phase 8 complete: kept the current desktop launch flow intact, documented desktop-only dependencies as optional package extras, and added backend boundary tests to prevent shared `core`/`services` code from importing PySide6, Pillow, or GUI modules.
 
 ---
 

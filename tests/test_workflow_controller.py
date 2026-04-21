@@ -10,6 +10,7 @@ from services.workflow_controller import (
     prepare_apply_workflow,
     refresh_photo_workflow,
 )
+from services.workflow_facade import PhotoWorkflowFacade
 
 
 class StubLoader:
@@ -163,6 +164,56 @@ class WorkflowControllerTests(unittest.TestCase):
         self.assertEqual(result.session.selected_paths, [target_photo])
         self.assertEqual(result.session.source_photo_path, Path("/tmp/source.jpg"))
         self.assertIn(target_photo, result.session.loaded_photo_infos)
+
+
+class PhotoWorkflowFacadeTests(unittest.TestCase):
+    def test_facade_refresh_uses_configured_loader(self) -> None:
+        target_photo = Path("/tmp/target-photo.jpg")
+        loader = StubLoader(
+            {
+                target_photo: PhotoInfo(
+                    path=target_photo,
+                    file_type="JPG",
+                    current_latitude=40.5,
+                    current_longitude=-111.8,
+                )
+            }
+        )
+        facade = PhotoWorkflowFacade(loader=loader, writer=StubWriter())
+        session = WorkflowSession(selected_paths=[target_photo])
+
+        refreshed = facade.refresh_photo_workflow(session)
+
+        self.assertEqual(loader.calls, [target_photo])
+        self.assertIn(target_photo, refreshed.loaded_photo_infos)
+
+    def test_facade_execute_apply_uses_configured_writer_and_loader(self) -> None:
+        target_photo = Path("/tmp/target-photo.jpg")
+        loader = StubLoader(
+            {
+                target_photo: PhotoInfo(
+                    path=target_photo,
+                    file_type="JPG",
+                    current_latitude=40.5,
+                    current_longitude=-111.8,
+                )
+            }
+        )
+        writer = StubWriter()
+        facade = PhotoWorkflowFacade(loader=loader, writer=writer)
+        session = WorkflowSession(selected_paths=[target_photo])
+
+        result = facade.execute_apply_workflow(
+            session=session,
+            preparation=ApplyPreparation(
+                target_paths=[target_photo],
+                coordinates=GpsCoordinates(40.5, -111.8),
+            ),
+        )
+
+        self.assertEqual(writer.calls, [(target_photo, 40.5, -111.8)])
+        self.assertEqual(loader.calls, [target_photo])
+        self.assertEqual(result.execution_result.success_count, 1)
 
 
 if __name__ == "__main__":

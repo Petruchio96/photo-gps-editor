@@ -21,8 +21,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.exiftool_wrapper import ExifToolWrapper
-from core.photo_loader import PhotoLoader
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
@@ -31,6 +29,7 @@ from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
 from gui.window_mixins.photo_list import PhotoListMixin
 from gui.window_mixins.source_editor import SourceEditorMixin
 from services.models import OverwriteEntry, WorkflowSession
+from services.workflow_facade import PhotoWorkflowFacade
 
 APP_VERSION = "1.1"
 
@@ -55,8 +54,9 @@ class MainWindow(
         self.resize(1500, 920)
         self.setMinimumSize(1280, 820)
 
-        self.exiftool = ExifToolWrapper()
-        self.loader = PhotoLoader(self.exiftool)
+        self.workflow = PhotoWorkflowFacade()
+        self.exiftool = self.workflow.writer
+        self.loader = self.workflow.loader
         self.thumbnail_loader = ThumbnailLoader(thumbnail_size=128)
 
         self.session = WorkflowSession()

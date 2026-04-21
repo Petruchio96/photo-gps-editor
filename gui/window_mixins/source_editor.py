@@ -16,11 +16,6 @@ from services.coordinate_service import (
     parse_manual_coordinates,
 )
 from services.target_paths_service import get_target_paths
-from services.workflow_controller import (
-    clear_source_workflow,
-    load_source_workflow,
-    refresh_photo_workflow,
-)
 
 
 class SourceEditorMixin:
@@ -70,7 +65,7 @@ class SourceEditorMixin:
         self._load_source_photo(source_path)
 
     def _load_source_photo(self, source_path: Path) -> None:
-        load_result = load_source_workflow(self.session, source_path, self.loader)
+        load_result = self.workflow.load_source_workflow(self.session, source_path)
         if self.photo_source_radio.isChecked():
             self.session.target_paths = [
                 path for path in self.session.target_paths if path != source_path
@@ -143,7 +138,7 @@ class SourceEditorMixin:
         self._handle_manual_coordinate_change()
 
     def clear_source_photo(self) -> None:
-        message = clear_source_workflow(self.session)
+        message = self.workflow.clear_source_workflow(self.session)
         self._refresh_source_preview()
         self._update_selection_metrics()
         self.update_details_panel()
@@ -270,10 +265,7 @@ class SourceEditorMixin:
             before_states=before_states,
             after_states={path: (None, None) for path in paths_with_gps},
         )
-        self.session = refresh_photo_workflow(
-            self.session,
-            self.loader,
-        )
+        self.session = self.workflow.refresh_photo_workflow(self.session)
         self._clear_target_list()
         self.populate_list()
         self.list_widget.clearSelection()

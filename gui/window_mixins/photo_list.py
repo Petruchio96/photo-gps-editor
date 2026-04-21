@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 )
 
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list, reselect_paths
-from services.workflow_controller import refresh_photo_workflow
 
 THUMBNAIL_PATH_ROLE = Qt.UserRole
 THUMBNAIL_LATITUDE_ROLE = Qt.UserRole + 1
@@ -78,10 +77,7 @@ class PhotoListMixin:
         self.populate_list()
 
     def populate_list(self) -> None:
-        self.session = refresh_photo_workflow(
-            self.session,
-            self.loader,
-        )
+        self.session = self.workflow.refresh_photo_workflow(self.session)
         self.session.thumbnail_items = build_thumbnail_item_data_list(
             self.session.loaded_photos
         )

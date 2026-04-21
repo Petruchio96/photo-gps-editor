@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
+from services.workflow_facade import PhotoWorkflowFacade
 
 
 class FakeExifTool:
@@ -77,6 +78,10 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.window.exiftool = FakeExifTool(self.gps_by_path)
         self.window.loader = FakePhotoLoader(self.gps_by_path)
+        self.window.workflow = PhotoWorkflowFacade(
+            loader=self.window.loader,
+            writer=self.window.exiftool,
+        )
         self.window.thumbnail_loader = FakeThumbnailLoader()
         self.window.session.selected_paths = list(self.paths)
         self.window.populate_list()

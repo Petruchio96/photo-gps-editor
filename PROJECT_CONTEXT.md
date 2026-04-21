@@ -35,6 +35,7 @@ Key objectives:
 
 - Reusable workflow logic outside the PySide frontend
 - Handles source resolution, target-file rules, session refresh, overwrite detection, coordinate parsing, and GPS apply orchestration
+- `services/workflow_facade.py`: single backend workflow entry point used by the desktop frontend
 - Intended to remain reusable for possible future desktop, API, web, or container workflows
 
 ### Desktop GUI
@@ -183,6 +184,7 @@ After each phase:
 Append progress here after each phase:
 
 - Phase 1 complete: moved `ThumbnailLoader` from `core/thumbnail_loader.py` to `gui/thumbnail_loader.py`, updated desktop/test imports, and removed desktop thumbnail rendering ownership from shared backend code.
+- Phase 2 complete: introduced `PhotoWorkflowFacade`, routed desktop load/refresh/source/apply orchestration through `self.workflow`, and added facade coverage while leaving undo/redo restore migration for Phase 5.
 
 ---
 

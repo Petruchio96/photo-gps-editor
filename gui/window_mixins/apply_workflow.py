@@ -4,7 +4,6 @@ from PySide6.QtWidgets import QMessageBox
 
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list
 from services.target_paths_service import get_target_paths
-from services.workflow_controller import execute_apply_workflow, prepare_apply_workflow
 
 
 class ApplyWorkflowMixin:
@@ -27,7 +26,7 @@ class ApplyWorkflowMixin:
             self.validate_latitude_field()
             self.validate_longitude_field()
 
-        preparation = prepare_apply_workflow(
+        preparation = self.workflow.prepare_apply_workflow(
             session=self.session,
             selected_paths=selected_paths,
             using_photo_source=self.photo_source_radio.isChecked(),
@@ -66,11 +65,9 @@ class ApplyWorkflowMixin:
                 return
 
         before_states = self._gps_states_for_paths(preparation.target_paths)
-        apply_result = execute_apply_workflow(
+        apply_result = self.workflow.execute_apply_workflow(
             session=self.session,
             preparation=preparation,
-            writer=self.exiftool,
-            loader=self.loader,
         )
         self.session = apply_result.session
         self._clear_target_list()

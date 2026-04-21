@@ -15,6 +15,7 @@ from services.models import (
     WorkflowMessage,
     WorkflowSession,
 )
+from services.photo_metadata_cache import PhotoMetadataCache
 from services.workflow_controller import (
     clear_source_workflow,
     execute_apply_workflow,
@@ -29,12 +30,13 @@ class PhotoWorkflowFacade:
     Backend workflow API used by the desktop frontend.
     """
 
-    def __init__(self, loader=None, writer=None) -> None:
+    def __init__(self, loader=None, writer=None, metadata_cache=None) -> None:
         self.writer = writer or ExifToolWrapper()
         self.loader = loader or PhotoLoader(self.writer)
+        self.metadata_cache = metadata_cache or PhotoMetadataCache()
 
     def refresh_photo_workflow(self, session: WorkflowSession) -> WorkflowSession:
-        return refresh_photo_workflow(session, self.loader)
+        return refresh_photo_workflow(session, self.loader, self.metadata_cache)
 
     def load_source_workflow(
         self,
@@ -74,4 +76,5 @@ class PhotoWorkflowFacade:
             preparation=preparation,
             writer=self.writer,
             loader=self.loader,
+            cache=self.metadata_cache,
         )

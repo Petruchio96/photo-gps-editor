@@ -36,6 +36,7 @@ Key objectives:
 - Reusable workflow logic outside the PySide frontend
 - Handles source resolution, target-file rules, session refresh, overwrite detection, coordinate parsing, and GPS apply orchestration
 - `services/workflow_facade.py`: single backend workflow entry point used by the desktop frontend
+- `services/photo_metadata_cache.py`: backend-owned in-memory metadata cache for unchanged selected photos
 - Intended to remain reusable for possible future desktop, API, web, or container workflows
 
 ### Desktop GUI
@@ -185,6 +186,7 @@ Append progress here after each phase:
 
 - Phase 1 complete: moved `ThumbnailLoader` from `core/thumbnail_loader.py` to `gui/thumbnail_loader.py`, updated desktop/test imports, and removed desktop thumbnail rendering ownership from shared backend code.
 - Phase 2 complete: introduced `PhotoWorkflowFacade`, routed desktop load/refresh/source/apply orchestration through `self.workflow`, and added facade coverage while leaving undo/redo restore migration for Phase 5.
+- Phase 3 complete: added backend-owned `PhotoMetadataCache`, routed selected-photo refresh/apply reloads through cached metadata, and covered unchanged-file reuse, changed-file invalidation, multi-file cache access, and facade cache coordination.
 
 ---
 

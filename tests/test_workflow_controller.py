@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from pathlib import Path
 
 from core.models import GpsCoordinates, PhotoInfo
@@ -214,6 +215,28 @@ class PhotoWorkflowFacadeTests(unittest.TestCase):
         self.assertEqual(writer.calls, [(target_photo, 40.5, -111.8)])
         self.assertEqual(loader.calls, [target_photo])
         self.assertEqual(result.execution_result.success_count, 1)
+
+    def test_facade_reuses_metadata_cache_for_unchanged_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target_photo = Path(temp_dir) / "target-photo.jpg"
+            target_photo.write_text("photo data", encoding="utf-8")
+            loader = StubLoader(
+                {
+                    target_photo: PhotoInfo(
+                        path=target_photo,
+                        file_type="JPG",
+                        current_latitude=40.5,
+                        current_longitude=-111.8,
+                    )
+                }
+            )
+            facade = PhotoWorkflowFacade(loader=loader, writer=StubWriter())
+            session = WorkflowSession(selected_paths=[target_photo])
+
+            facade.refresh_photo_workflow(session)
+            facade.refresh_photo_workflow(session)
+
+        self.assertEqual(loader.calls, [target_photo])
 
 
 if __name__ == "__main__":

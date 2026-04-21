@@ -21,11 +21,12 @@ from services.source_service import resolve_active_source
 def refresh_photo_workflow(
     session: WorkflowSession,
     loader,
+    cache=None,
 ) -> WorkflowSession:
     """
     Refresh the selected-photo portion of the workflow while preserving source state.
     """
-    photo_session = refresh_photo_session(session.selected_paths, loader)
+    photo_session = refresh_photo_session(session.selected_paths, loader, cache)
     photo_session.target_paths = list(session.target_paths)
     photo_session.source_photo_info = session.source_photo_info
     photo_session.source_photo_path = session.source_photo_path
@@ -112,6 +113,7 @@ def execute_apply_workflow(
     preparation: ApplyPreparation,
     writer,
     loader,
+    cache=None,
 ) -> ApplyWorkflowResult:
     """
     Execute an apply action and refresh selected-photo state afterward.
@@ -126,7 +128,7 @@ def execute_apply_workflow(
         longitude=coordinates.longitude,
         writer=writer,
     )
-    refreshed_session = refresh_photo_workflow(session, loader)
+    refreshed_session = refresh_photo_workflow(session, loader, cache)
     return ApplyWorkflowResult(
         session=refreshed_session,
         execution_result=execution_result,

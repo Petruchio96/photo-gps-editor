@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -302,17 +302,40 @@ class MainWindow(
         return [entry.display_text() for entry in overwrite_entries]
 
     def show_about_dialog(self) -> None:
-        QMessageBox.about(
-            self,
-            f"About Photo GPS Editor {APP_VERSION}",
+        self._build_about_dialog().exec()
+
+    def _build_about_dialog(self) -> QMessageBox:
+        repo_url = "https://github.com/Petruchio96/photo-gps-editor"
+        about_dialog = QMessageBox(self)
+        about_dialog.setWindowTitle(f"About Photo GPS Editor {APP_VERSION}")
+        about_dialog.setIconPixmap(QIcon("assets/app_icon_128.png").pixmap(64, 64))
+        about_dialog.setStandardButtons(QMessageBox.Ok)
+
+        link_label = QLabel(
             (
-                f"Photo GPS Editor {APP_VERSION}\n\n"
-                "A desktop application for viewing photo GPS metadata, "
-                "copying coordinates, and applying GPS data to one or more selected files.\n\n"
-                "Instructions and more information:\n"
-                "https://github.com/Petruchio96/photo-gps-editor"
-            ),
+                f"<p><strong>Photo GPS Editor {APP_VERSION}</strong></p>"
+                "<p>A desktop application for viewing photo GPS metadata, "
+                "copying coordinates, and applying GPS data to one or more selected files.</p>"
+                "<p>Instructions and more information:<br>"
+                f'<a href="{repo_url}">{repo_url}</a></p>'
+            )
         )
+        link_label.setObjectName("aboutRepositoryLink")
+        link_label.setTextFormat(Qt.RichText)
+        link_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        link_label.setOpenExternalLinks(True)
+        link_label.setWordWrap(True)
+        link_label.setMinimumWidth(360)
+
+        about_dialog.layout().addWidget(
+            link_label,
+            0,
+            1,
+            1,
+            about_dialog.layout().columnCount(),
+        )
+        about_dialog.setMinimumWidth(520)
+        return about_dialog
 
     def clipboard(self):
         return QApplication.clipboard()

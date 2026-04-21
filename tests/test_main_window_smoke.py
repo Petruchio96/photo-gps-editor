@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
@@ -189,15 +189,28 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.selected_photos_stack.currentIndex(), 0)
 
     def test_about_action_opens_versioned_dialog(self) -> None:
-        with patch("gui.main_window.QMessageBox.about") as about_dialog:
+        with patch("gui.main_window.QMessageBox.exec") as exec_mock:
             self.window.show_about_dialog()
 
-        about_dialog.assert_called_once()
-        _, title, text = about_dialog.call_args.args
-        self.assertIn(APP_VERSION, title)
-        self.assertIn("Photo GPS Editor", text)
-        self.assertIn(APP_VERSION, text)
-        self.assertIn("https://github.com/Petruchio96/photo-gps-editor", text)
+        exec_mock.assert_called_once()
+
+    def test_about_dialog_uses_clickable_external_repository_link(self) -> None:
+        about_dialog = self.window._build_about_dialog()
+        self.assertIn(APP_VERSION, about_dialog.windowTitle())
+        self.assertFalse(about_dialog.iconPixmap().isNull())
+        link_label = about_dialog.findChild(QLabel, "aboutRepositoryLink")
+        self.assertIsNotNone(link_label)
+        self.assertEqual(link_label.textFormat(), Qt.RichText)
+        self.assertEqual(link_label.textInteractionFlags(), Qt.TextBrowserInteraction)
+        self.assertTrue(link_label.openExternalLinks())
+        self.assertGreaterEqual(link_label.minimumWidth(), 360)
+        self.assertGreaterEqual(about_dialog.minimumWidth(), 520)
+        self.assertIn("Photo GPS Editor", link_label.text())
+        self.assertIn(APP_VERSION, link_label.text())
+        self.assertIn(
+            '<a href="https://github.com/Petruchio96/photo-gps-editor">',
+            link_label.text(),
+        )
 
     def test_select_all_and_clear_selection_buttons_work(self) -> None:
         self.window.select_all_photos()

@@ -9,3 +9,6 @@ desktop = [
     "PySide6",
     "Pillow",
 ]
+build = [
+    "PyInstaller",
+]

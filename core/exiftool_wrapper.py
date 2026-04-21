@@ -20,6 +20,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from core.runtime_paths import default_exiftool_executable
+
 
 class ExifToolWrapper:
     """
@@ -29,7 +31,7 @@ class ExifToolWrapper:
     which makes the rest of the application simpler and easier to test.
     """
 
-    def __init__(self, executable: str = "exiftool") -> None:
+    def __init__(self, executable: str | None = None) -> None:
         """
         Store the executable name or path.
 
@@ -38,7 +40,7 @@ class ExifToolWrapper:
                 The command name or full path to ExifTool.
                 Usually just "exiftool" if it is installed in PATH.
         """
-        self.executable = executable
+        self.executable = executable or default_exiftool_executable()
 
     def is_available(self) -> bool:
         """

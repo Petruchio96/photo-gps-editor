@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.runtime_paths import resource_path
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
@@ -308,7 +309,9 @@ class MainWindow(
         repo_url = "https://github.com/Petruchio96/photo-gps-editor"
         about_dialog = QMessageBox(self)
         about_dialog.setWindowTitle(f"About Photo GPS Editor {APP_VERSION}")
-        about_dialog.setIconPixmap(QIcon("assets/app_icon_128.png").pixmap(64, 64))
+        about_dialog.setIconPixmap(
+            QIcon(str(resource_path("assets/app_icon_128.png"))).pixmap(64, 64)
+        )
         about_dialog.setStandardButtons(QMessageBox.Ok)
 
         link_label = QLabel(

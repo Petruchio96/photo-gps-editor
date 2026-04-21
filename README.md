@@ -34,6 +34,12 @@ python -m venv .venv
 
 ## Download and Use
 
-Download/install instructions will be added here later.
+Packaged executable downloads will be added here after release builds are tested.
+
+Planned first release formats:
+
+- Windows: a zipped one-folder app containing `Photo GPS Editor.exe`
+- Linux: a PyInstaller one-folder app first, then an AppImage once the folder
+  build is proven
 
 For now, run the project from source using the local development instructions above.

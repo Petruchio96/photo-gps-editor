@@ -113,6 +113,47 @@ class ExifToolWrapper:
             "longitude": record.get("GPSLongitude"),
         }
 
+    def read_gps_many(self, paths: list[Path]) -> dict[Path, dict]:
+        """
+        Read GPS metadata for many files with one ExifTool invocation.
+        """
+        if not paths:
+            return {}
+
+        command = [
+            self.executable,
+            "-json",
+            "-n",
+            "-GPSLatitude",
+            "-GPSLongitude",
+            *[str(path) for path in paths],
+        ]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Failed to read metadata.")
+
+        records = json.loads(result.stdout)
+        gps_by_path: dict[Path, dict] = {}
+
+        for record in records:
+            source_file = record.get("SourceFile")
+            if source_file is None:
+                continue
+
+            gps_by_path[Path(source_file)] = {
+                "latitude": record.get("GPSLatitude"),
+                "longitude": record.get("GPSLongitude"),
+            }
+
+        return gps_by_path
+
     def write_gps(self, path: Path, latitude: float, longitude: float) -> None:
         """
         Write GPS metadata to a file using ExifTool.

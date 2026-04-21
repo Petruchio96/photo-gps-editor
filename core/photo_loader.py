@@ -74,3 +74,46 @@ class PhotoLoader:
             info.gps_error = str(exc)
 
         return info
+
+    def load_photo_infos(self, paths: list[Path]) -> list[PhotoInfo]:
+        """
+        Load many photos, using bulk metadata reads where possible.
+        """
+        photo_infos_by_path = {
+            path: PhotoInfo(
+                path=path,
+                file_type=path.suffix.upper().lstrip("."),
+            )
+            for path in paths
+        }
+        supported_paths: list[Path] = []
+
+        for path, info in photo_infos_by_path.items():
+            if is_supported_file(path):
+                supported_paths.append(path)
+            else:
+                info.gps_error = "Unsupported file type."
+
+        if not supported_paths:
+            return [photo_infos_by_path[path] for path in paths]
+
+        try:
+            gps_by_path = self.exiftool.read_gps_many(supported_paths)
+        except Exception:
+            return [self.load_photo_info(path) for path in paths]
+
+        missing_paths: list[Path] = []
+        for path in supported_paths:
+            gps_data = gps_by_path.get(path)
+            if gps_data is None:
+                missing_paths.append(path)
+                continue
+
+            info = photo_infos_by_path[path]
+            info.current_latitude = gps_data.get("latitude")
+            info.current_longitude = gps_data.get("longitude")
+
+        for path in missing_paths:
+            photo_infos_by_path[path] = self.load_photo_info(path)
+
+        return [photo_infos_by_path[path] for path in paths]

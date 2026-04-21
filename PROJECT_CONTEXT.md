@@ -29,7 +29,7 @@ Key objectives:
 - `core/coordinates.py`: latitude/longitude validation
 - `core/file_types.py`: supported extension checks
 - `core/exiftool_wrapper.py`: ExifTool read/write/clear integration
-- `core/photo_loader.py`: converts paths into `PhotoInfo`
+- `core/photo_loader.py`: converts paths into `PhotoInfo` using single-file and bulk metadata reads
 
 ### Services
 
@@ -187,6 +187,7 @@ Append progress here after each phase:
 - Phase 1 complete: moved `ThumbnailLoader` from `core/thumbnail_loader.py` to `gui/thumbnail_loader.py`, updated desktop/test imports, and removed desktop thumbnail rendering ownership from shared backend code.
 - Phase 2 complete: introduced `PhotoWorkflowFacade`, routed desktop load/refresh/source/apply orchestration through `self.workflow`, and added facade coverage while leaving undo/redo restore migration for Phase 5.
 - Phase 3 complete: added backend-owned `PhotoMetadataCache`, routed selected-photo refresh/apply reloads through cached metadata, and covered unchanged-file reuse, changed-file invalidation, multi-file cache access, and facade cache coordination.
+- Phase 4 complete: added ExifTool bulk GPS reads, routed uncached selected-photo loads through bulk `PhotoLoader.load_photo_infos`, preserved unsupported-file handling and single-file fallback paths, and covered bulk result mapping, missing-record fallback, cache-miss batching, and bulk failure fallback.
 
 ---
 

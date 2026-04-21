@@ -58,6 +58,52 @@ class ExifToolWrapperTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "bad read"):
                 wrapper.read_gps(Path("/tmp/photo.jpg"))
 
+    def test_read_gps_many_returns_coordinates_by_path(self) -> None:
+        wrapper = ExifToolWrapper()
+        first = Path("/tmp/first.jpg")
+        second = Path("/tmp/second.jpg")
+        payload = json.dumps(
+            [
+                {
+                    "SourceFile": str(first),
+                    "GPSLatitude": 40.5,
+                    "GPSLongitude": -111.8,
+                },
+                {
+                    "SourceFile": str(second),
+                    "GPSLatitude": None,
+                    "GPSLongitude": None,
+                },
+            ]
+        )
+
+        with patch(
+            "core.exiftool_wrapper.subprocess.run",
+            return_value=CompletedProcessStub(0, stdout=payload),
+        ) as run_mock:
+            result = wrapper.read_gps_many([first, second])
+
+        self.assertEqual(
+            result,
+            {
+                first: {"latitude": 40.5, "longitude": -111.8},
+                second: {"latitude": None, "longitude": None},
+            },
+        )
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[:5], ["exiftool", "-json", "-n", "-GPSLatitude", "-GPSLongitude"])
+        self.assertEqual(command[-2:], [str(first), str(second)])
+
+    def test_read_gps_many_raises_runtime_error_on_failure(self) -> None:
+        wrapper = ExifToolWrapper()
+
+        with patch(
+            "core.exiftool_wrapper.subprocess.run",
+            return_value=CompletedProcessStub(1, stderr="bad bulk read"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "bad bulk read"):
+                wrapper.read_gps_many([Path("/tmp/photo.jpg")])
+
     def test_write_gps_builds_expected_command_for_negative_values(self) -> None:
         wrapper = ExifToolWrapper()
 

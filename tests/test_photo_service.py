@@ -22,6 +22,16 @@ class StubLoader:
         return self.photo_infos[path]
 
 
+class BulkStubLoader(StubLoader):
+    def __init__(self, photo_infos: dict[Path, PhotoInfo]) -> None:
+        super().__init__(photo_infos)
+        self.bulk_calls: list[list[Path]] = []
+
+    def load_photo_infos(self, paths: list[Path]) -> list[PhotoInfo]:
+        self.bulk_calls.append(paths)
+        return [self.photo_infos[path] for path in paths]
+
+
 class PhotoServiceTests(unittest.TestCase):
     def test_load_selected_photo_infos_preserves_input_order(self) -> None:
         first = Path("/tmp/first.jpg")
@@ -155,6 +165,47 @@ class PhotoServiceTests(unittest.TestCase):
 
         self.assertEqual(cached_infos[first].current_latitude, 40.5)
         self.assertEqual(cached_infos[second].current_longitude, -111.8)
+
+    def test_load_selected_photo_infos_bulk_loads_cache_misses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cached_path = Path(temp_dir) / "cached.jpg"
+            first_miss = Path(temp_dir) / "first-miss.jpg"
+            second_miss = Path(temp_dir) / "second-miss.jpg"
+            cached_path.write_text("cached", encoding="utf-8")
+            first_miss.write_text("first", encoding="utf-8")
+            second_miss.write_text("second", encoding="utf-8")
+            cache = PhotoMetadataCache()
+            cache.set(
+                PhotoInfo(
+                    path=cached_path,
+                    file_type="JPG",
+                    current_latitude=40.5,
+                )
+            )
+            loader = BulkStubLoader(
+                {
+                    first_miss: PhotoInfo(
+                        path=first_miss,
+                        file_type="JPG",
+                        current_latitude=41.0,
+                    ),
+                    second_miss: PhotoInfo(
+                        path=second_miss,
+                        file_type="JPG",
+                        current_latitude=42.0,
+                    ),
+                }
+            )
+
+            loaded = load_selected_photo_infos(
+                [cached_path, first_miss, second_miss],
+                loader,
+                cache,
+            )
+
+        self.assertEqual([info.path for info in loaded], [cached_path, first_miss, second_miss])
+        self.assertEqual(loader.bulk_calls, [[first_miss, second_miss]])
+        self.assertEqual(loader.calls, [])
 
 
 if __name__ == "__main__":

@@ -20,20 +20,35 @@ def load_selected_photo_infos(
     """
     Load photo models for the current selected-photo workspace.
     """
-    photo_infos: list[PhotoInfo] = []
+    path_list = list(paths)
+    photo_infos_by_path: dict[Path, PhotoInfo] = {}
+    paths_to_load: list[Path] = []
 
-    for path in paths:
+    for path in path_list:
         cached_info = cache.get(path) if cache is not None else None
         if cached_info is not None:
-            photo_infos.append(cached_info)
+            photo_infos_by_path[path] = cached_info
             continue
 
-        info = loader.load_photo_info(path)
+        paths_to_load.append(path)
+
+    loaded_infos = _load_uncached_photo_infos(paths_to_load, loader)
+    for info in loaded_infos:
         if cache is not None:
             cache.set(info)
-        photo_infos.append(info)
+        photo_infos_by_path[info.path] = info
 
-    return photo_infos
+    return [photo_infos_by_path[path] for path in path_list]
+
+
+def _load_uncached_photo_infos(paths: list[Path], loader) -> list[PhotoInfo]:
+    if not paths:
+        return []
+
+    if hasattr(loader, "load_photo_infos"):
+        return loader.load_photo_infos(paths)
+
+    return [loader.load_photo_info(path) for path in paths]
 
 
 def index_photo_infos(photo_infos: Iterable[PhotoInfo]) -> dict[Path, PhotoInfo]:

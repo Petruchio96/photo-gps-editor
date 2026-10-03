@@ -6,8 +6,8 @@ These steps start after booting into Windows.
 
 Install these first if they are not already installed:
 
-- Python 3.12 from https://www.python.org/downloads/
-- Git for Windows from https://git-scm.com/download/win
+- Python 3.12 from <https://www.python.org/downloads/>
+- Git for Windows from <https://git-scm.com/download/win>
 
 During Python installation, enable:
 
@@ -61,23 +61,21 @@ py -3.12 -m venv .venv
 
 ## 4. Add Windows ExifTool
 
-Download Windows ExifTool from:
+Download the Windows ExifTool zip (64-bit) from:
 
 ```text
 https://exiftool.org/
 ```
 
-The downloaded executable is usually named something like:
+Current Windows ExifTool zips contain two things, and both are needed:
 
 ```text
 exiftool(-k).exe
+exiftool_files\
 ```
 
-Rename it to:
-
-```text
-exiftool.exe
-```
+`exiftool_files` holds the Perl runtime that the executable depends on.
+The executable will not run without it.
 
 Create the tools folder if needed:
 
@@ -85,11 +83,15 @@ Create the tools folder if needed:
 mkdir tools\windows -Force
 ```
 
-Move or copy `exiftool.exe` into:
+Extract the zip, then copy both items into `tools\windows` and rename the
+executable to `exiftool.exe`:
 
 ```text
 tools\windows\exiftool.exe
+tools\windows\exiftool_files\
 ```
+
+These files are listed in `.gitignore`, so they will not be committed.
 
 Verify it runs:
 

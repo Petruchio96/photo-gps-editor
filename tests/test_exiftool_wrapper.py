@@ -1,4 +1,6 @@
 import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -35,7 +37,21 @@ class ExifToolWrapperTests(unittest.TestCase):
 
         self.assertEqual(result, {"latitude": 40.5, "longitude": -111.8})
         command = run_mock.call_args.args[0]
-        self.assertEqual(command[:4], ["exiftool", "-json", "-n", "-GPSLatitude"])
+        self.assertEqual(
+            command,
+            [
+                "exiftool",
+                "-charset",
+                "filename=utf8",
+                "-json",
+                "-n",
+                "-GPSLatitude",
+                "-GPSLongitude",
+                "-@",
+                "-",
+            ],
+        )
+        self.assertEqual(run_mock.call_args.kwargs["input"], "/tmp/photo.jpg\n")
 
     def test_read_gps_returns_none_values_for_empty_payload(self) -> None:
         wrapper = ExifToolWrapper()
@@ -91,8 +107,12 @@ class ExifToolWrapperTests(unittest.TestCase):
             },
         )
         command = run_mock.call_args.args[0]
-        self.assertEqual(command[:5], ["exiftool", "-json", "-n", "-GPSLatitude", "-GPSLongitude"])
-        self.assertEqual(command[-2:], [str(first), str(second)])
+        self.assertEqual(command[3:7], ["-json", "-n", "-GPSLatitude", "-GPSLongitude"])
+        self.assertEqual(command[-2:], ["-@", "-"])
+        self.assertEqual(
+            run_mock.call_args.kwargs["input"],
+            f"{first}\n{second}\n",
+        )
 
     def test_read_gps_many_raises_runtime_error_on_failure(self) -> None:
         wrapper = ExifToolWrapper()
@@ -119,6 +139,37 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-GPSLongitude=111.8", command)
         self.assertIn("-GPSLongitudeRef=W", command)
 
+    def test_clear_gps_blanks_gps_tags(self) -> None:
+        wrapper = ExifToolWrapper()
+
+        with patch(
+            "core.exiftool_wrapper.subprocess.run",
+            return_value=CompletedProcessStub(0),
+        ) as run_mock:
+            wrapper.clear_gps(Path("/tmp/photo.jpg"))
+
+        command = run_mock.call_args.args[0]
+        self.assertIn("-overwrite_original", command)
+        self.assertIn("-GPSLatitude=", command)
+        self.assertIn("-GPSLongitudeRef=", command)
+        self.assertEqual(run_mock.call_args.kwargs["input"], "/tmp/photo.jpg\n")
+
+    def test_runs_use_utf8_and_hidden_console_window(self) -> None:
+        wrapper = ExifToolWrapper()
+
+        with patch(
+            "core.exiftool_wrapper.subprocess.run",
+            return_value=CompletedProcessStub(0, stdout="[]"),
+        ) as run_mock:
+            wrapper.read_gps(Path("/tmp/photo.jpg"))
+
+        kwargs = run_mock.call_args.kwargs
+        self.assertEqual(kwargs["encoding"], "utf-8")
+        self.assertEqual(
+            kwargs["creationflags"],
+            getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
     def test_write_gps_raises_runtime_error_on_failure(self) -> None:
         wrapper = ExifToolWrapper()
 
@@ -128,6 +179,33 @@ class ExifToolWrapperTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "bad write"):
                 wrapper.write_gps(Path("/tmp/photo.jpg"), 40.5, -111.8)
+
+
+@unittest.skipUnless(ExifToolWrapper().is_available(), "ExifTool is not installed")
+class ExifToolWrapperIntegrationTests(unittest.TestCase):
+    def test_write_read_clear_round_trip_with_unicode_file_name(self) -> None:
+        # Pillow is a desktop dependency; it is only used here to make a JPEG.
+        from PIL import Image
+
+        wrapper = ExifToolWrapper()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            photo = Path(temp_dir) / "Café 東京 #1.jpg"
+            Image.new("RGB", (8, 8), "white").save(photo)
+
+            wrapper.write_gps(photo, -33.8568, 151.2153)
+            gps = wrapper.read_gps(photo)
+            self.assertAlmostEqual(gps["latitude"], -33.8568, places=4)
+            self.assertAlmostEqual(gps["longitude"], 151.2153, places=4)
+
+            bulk = wrapper.read_gps_many([photo])
+            self.assertAlmostEqual(bulk[photo]["latitude"], -33.8568, places=4)
+
+            wrapper.clear_gps(photo)
+            self.assertEqual(
+                wrapper.read_gps(photo),
+                {"latitude": None, "longitude": None},
+            )
 
 
 if __name__ == "__main__":

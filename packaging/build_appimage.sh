@@ -30,17 +30,19 @@ exec "$APPDIR/usr/bin/Photo GPS Editor/Photo GPS Editor" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-cat > "$APPDIR/Photo GPS Editor.desktop" <<'EOF'
+# Desktop entries split Exec on spaces, so use a space-free command name.
+# AppRun is what actually launches the app inside the AppImage.
+cat > "$APPDIR/photo-gps-editor.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Photo GPS Editor
 Comment=View, copy, apply, and clear GPS metadata in photo files
-Exec=Photo GPS Editor
+Exec=photo-gps-editor
 Icon=photo-gps-editor
 Categories=Graphics;Photography;
 Terminal=false
 EOF
-cp "$APPDIR/Photo GPS Editor.desktop" "$APPDIR/usr/share/applications/photo-gps-editor.desktop"
+cp "$APPDIR/photo-gps-editor.desktop" "$APPDIR/usr/share/applications/photo-gps-editor.desktop"
 
 "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE_OUTPUT"
 chmod +x "$APPIMAGE_OUTPUT"

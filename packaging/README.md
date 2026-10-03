@@ -40,7 +40,9 @@ Build on Windows rather than cross-compiling from Linux.
 1. Install Python 3.12.
 2. Create and activate a virtual environment.
 3. Install runtime dependencies and PyInstaller.
-4. Put the Windows ExifTool executable at `tools/windows/exiftool.exe`.
+4. Put the Windows ExifTool executable at `tools/windows/exiftool.exe` and its
+   `exiftool_files` folder at `tools/windows/exiftool_files/`. See
+   `tools/windows/README.md`.
 5. Run:
 
 ```powershell

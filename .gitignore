@@ -5,3 +5,5 @@ __pycache__/
 build/
 dist/
 .codex
+tools/windows/exiftool.exe
+tools/windows/exiftool_files/

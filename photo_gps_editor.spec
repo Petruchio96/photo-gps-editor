@@ -28,6 +28,12 @@ def existing_datas():
     if windows_exiftool.exists():
         datas.append((str(windows_exiftool), "tools/windows"))
 
+    # Current Windows ExifTool releases need their exiftool_files folder (Perl runtime)
+    # next to exiftool.exe, so bundle it alongside the executable.
+    windows_exiftool_files = project_root / "tools" / "windows" / "exiftool_files"
+    if windows_exiftool_files.exists():
+        datas.append((str(windows_exiftool_files), "tools/windows/exiftool_files"))
+
     return datas
 
 
@@ -55,7 +61,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -68,7 +74,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="Photo GPS Editor",
 )

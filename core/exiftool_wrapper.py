@@ -22,6 +22,11 @@ from pathlib import Path
 
 from core.runtime_paths import default_exiftool_executable
 
+# On Windows, a GUI app that starts a console program flashes a console window
+# unless told not to. CREATE_NO_WINDOW only exists on Windows; 0 is a no-op
+# value for creationflags on other platforms.
+_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 class ExifToolWrapper:
     """
@@ -81,26 +86,12 @@ class ExifToolWrapper:
             RuntimeError:
                 If ExifTool fails, such as when the file cannot be read.
         """
-        command = [
-            self.executable,
-            "-json",
-            "-n",
-            "-GPSLatitude",
-            "-GPSLongitude",
-            str(path),
-        ]
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
+        output = self._run(
+            ["-json", "-n", "-GPSLatitude", "-GPSLongitude"],
+            [path],
+            "Failed to read metadata.",
         )
-
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "Failed to read metadata.")
-
-        data = json.loads(result.stdout)
+        data = json.loads(output)
 
         if not data:
             return {
@@ -122,26 +113,12 @@ class ExifToolWrapper:
         if not paths:
             return {}
 
-        command = [
-            self.executable,
-            "-json",
-            "-n",
-            "-GPSLatitude",
-            "-GPSLongitude",
-            *[str(path) for path in paths],
-        ]
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
+        output = self._run(
+            ["-json", "-n", "-GPSLatitude", "-GPSLongitude"],
+            paths,
+            "Failed to read metadata.",
         )
-
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "Failed to read metadata.")
-
-        records = json.loads(result.stdout)
+        records = json.loads(output)
         gps_by_path: dict[Path, dict] = {}
 
         for record in records:
@@ -183,46 +160,85 @@ class ExifToolWrapper:
         latitude_ref = "N" if latitude >= 0 else "S"
         longitude_ref = "E" if longitude >= 0 else "W"
 
-        command = [
-            self.executable,
-            "-overwrite_original",
-            f"-GPSLatitude={abs(latitude)}",
-            f"-GPSLatitudeRef={latitude_ref}",
-            f"-GPSLongitude={abs(longitude)}",
-            f"-GPSLongitudeRef={longitude_ref}",
-            str(path),
-        ]
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
+        self._run(
+            [
+                "-overwrite_original",
+                f"-GPSLatitude={abs(latitude)}",
+                f"-GPSLatitudeRef={latitude_ref}",
+                f"-GPSLongitude={abs(longitude)}",
+                f"-GPSLongitudeRef={longitude_ref}",
+            ],
+            [path],
+            "Failed to write metadata.",
         )
-
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "Failed to write metadata.")
 
     def clear_gps(self, path: Path) -> None:
         """
         Remove GPS metadata from a file using ExifTool.
         """
+        self._run(
+            [
+                "-overwrite_original",
+                "-GPSLatitude=",
+                "-GPSLatitudeRef=",
+                "-GPSLongitude=",
+                "-GPSLongitudeRef=",
+            ],
+            [path],
+            "Failed to clear metadata.",
+        )
+
+    def _run(self, options: list[str], paths: list[Path], failure_message: str) -> str:
+        """
+        Run ExifTool with the given options on the given files.
+
+        Why file paths go through stdin instead of the command line:
+            On Windows, command-line arguments are limited to the system code
+            page, so some file names (for example Japanese or emoji characters)
+            cannot be passed correctly. ExifTool's recommended fix is to list
+            the files in a UTF-8 argument file ("-@ -" reads it from stdin) and
+            set "-charset filename=utf8". This works the same on every platform.
+
+        Args:
+            options:
+                ExifTool options to use, such as ["-json", "-n"].
+            paths:
+                Files to process. These should be absolute paths, because
+                ExifTool argument files ignore lines starting with "#" and
+                strip leading spaces.
+            failure_message:
+                Error text used when ExifTool fails without printing a reason.
+
+        Returns:
+            ExifTool's standard output as text.
+
+        Raises:
+            RuntimeError:
+                If ExifTool returns a non-zero exit code.
+        """
         command = [
             self.executable,
-            "-overwrite_original",
-            "-GPSLatitude=",
-            "-GPSLatitudeRef=",
-            "-GPSLongitude=",
-            "-GPSLongitudeRef=",
-            str(path),
+            "-charset",
+            "filename=utf8",
+            *options,
+            "-@",
+            "-",
         ]
 
         result = subprocess.run(
             command,
+            input="".join(f"{path}\n" for path in paths),
             capture_output=True,
             text=True,
+            # ExifTool writes UTF-8; do not rely on the OS default encoding,
+            # which is Windows-1252 on many Windows systems.
+            encoding="utf-8",
+            errors="replace",
             check=False,
+            creationflags=_NO_WINDOW_FLAGS,
         )
 
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "Failed to clear metadata.")
+            raise RuntimeError(result.stderr.strip() or failure_message)
+
+        return result.stdout

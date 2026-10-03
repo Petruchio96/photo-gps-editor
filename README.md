@@ -34,12 +34,31 @@ python -m venv .venv
 
 ## Download and Use
 
-Packaged executable downloads will be added here after release builds are tested.
+Download the latest version from the
+[Releases page](https://github.com/Petruchio96/photo-gps-editor/releases/latest).
+ExifTool is included, so nothing else needs to be installed.
 
-Planned first release formats:
+### Linux
 
-- Windows: a zipped one-folder app containing `Photo GPS Editor.exe`
-- Linux: a PyInstaller one-folder app first, then an AppImage once the folder
-  build is proven
+`Photo_GPS_Editor-x86_64.AppImage` is a single file. Make it executable and run it:
 
-For now, run the project from source using the local development instructions above.
+```bash
+chmod +x Photo_GPS_Editor-x86_64.AppImage
+./Photo_GPS_Editor-x86_64.AppImage
+```
+
+You can also double-click it in your file manager after making it executable.
+If you see a FUSE error, run it with `APPIMAGE_EXTRACT_AND_RUN=1` in front of
+the command, or install your distribution's FUSE package.
+
+`photo-gps-editor-linux-x86_64.tar.gz` contains the same app as a folder.
+Extract it and run `Photo GPS Editor` inside the folder.
+
+The Linux build uses the system Perl to run ExifTool. Perl is installed by
+default on most Linux distributions.
+
+### Windows and macOS
+
+Packaged downloads for Windows and macOS are planned for a later release.
+For now, run the project from source using the local development instructions
+above, with ExifTool installed.

@@ -3,19 +3,23 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.exiftool_wrapper import ExifToolWrapper
 
 
-class CompletedProcessStub:
-    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
 class ExifToolWrapperTests(unittest.TestCase):
+    """
+    Command-building tests. These replace the ExifTool process with a stub, so
+    they check which arguments are sent without needing ExifTool installed.
+    """
+
+    def _wrapper_with_reply(self, status: int = 0, output: str = "", errors: str = ""):
+        wrapper = ExifToolWrapper("exiftool")
+        execute_mock = MagicMock(return_value=(status, output, errors))
+        wrapper._execute = execute_mock
+        return wrapper, execute_mock
+
     def test_is_available_checks_path(self) -> None:
         wrapper = ExifToolWrapper("custom-exiftool")
 
@@ -26,59 +30,45 @@ class ExifToolWrapperTests(unittest.TestCase):
             self.assertFalse(wrapper.is_available())
 
     def test_read_gps_returns_coordinates(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
         payload = json.dumps([{"GPSLatitude": 40.5, "GPSLongitude": -111.8}])
+        wrapper, execute_mock = self._wrapper_with_reply(output=payload)
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0, stdout=payload),
-        ) as run_mock:
-            result = wrapper.read_gps(Path("/tmp/photo.jpg"))
+        result = wrapper.read_gps(Path("/tmp/photo.jpg"))
 
         self.assertEqual(result, {"latitude": 40.5, "longitude": -111.8})
-        command = run_mock.call_args.args[0]
         self.assertEqual(
-            command,
+            execute_mock.call_args.args[0],
             [
-                "exiftool",
                 "-charset",
                 "filename=utf8",
                 "-json",
                 "-n",
                 "-GPSLatitude",
                 "-GPSLongitude",
-                "-@",
-                "-",
+                str(Path("/tmp/photo.jpg")),
             ],
-        )
-        self.assertEqual(
-            run_mock.call_args.kwargs["input"],
-            f"{Path('/tmp/photo.jpg')}\n",
         )
 
     def test_read_gps_returns_none_values_for_empty_payload(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
+        wrapper, _ = self._wrapper_with_reply(output="[]")
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0, stdout="[]"),
-        ):
-            result = wrapper.read_gps(Path("/tmp/photo.jpg"))
+        result = wrapper.read_gps(Path("/tmp/photo.jpg"))
 
         self.assertEqual(result, {"latitude": None, "longitude": None})
 
     def test_read_gps_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
+        wrapper, _ = self._wrapper_with_reply(status=1, errors="bad read")
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(1, stderr="bad read"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "bad read"):
-                wrapper.read_gps(Path("/tmp/photo.jpg"))
+        with self.assertRaisesRegex(RuntimeError, "bad read"):
+            wrapper.read_gps(Path("/tmp/photo.jpg"))
+
+    def test_failure_without_error_text_uses_default_message(self) -> None:
+        wrapper, _ = self._wrapper_with_reply(status=1)
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to write metadata."):
+            wrapper.write_gps(Path("/tmp/photo.jpg"), 1.0, 2.0)
 
     def test_read_gps_many_returns_coordinates_by_path(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
         first = Path("/tmp/first.jpg")
         second = Path("/tmp/second.jpg")
         payload = json.dumps(
@@ -95,12 +85,9 @@ class ExifToolWrapperTests(unittest.TestCase):
                 },
             ]
         )
+        wrapper, execute_mock = self._wrapper_with_reply(output=payload)
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0, stdout=payload),
-        ) as run_mock:
-            result = wrapper.read_gps_many([first, second])
+        result = wrapper.read_gps_many([first, second])
 
         self.assertEqual(
             result,
@@ -109,109 +96,160 @@ class ExifToolWrapperTests(unittest.TestCase):
                 second: {"latitude": None, "longitude": None},
             },
         )
-        command = run_mock.call_args.args[0]
-        self.assertEqual(command[3:7], ["-json", "-n", "-GPSLatitude", "-GPSLongitude"])
-        self.assertEqual(command[-2:], ["-@", "-"])
-        self.assertEqual(
-            run_mock.call_args.kwargs["input"],
-            f"{first}\n{second}\n",
-        )
+        arguments = execute_mock.call_args.args[0]
+        self.assertEqual(arguments[2:6], ["-json", "-n", "-GPSLatitude", "-GPSLongitude"])
+        self.assertEqual(arguments[-2:], [str(first), str(second)])
 
     def test_read_gps_many_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
+        wrapper, _ = self._wrapper_with_reply(status=1, errors="bad bulk read")
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(1, stderr="bad bulk read"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "bad bulk read"):
-                wrapper.read_gps_many([Path("/tmp/photo.jpg")])
+        with self.assertRaisesRegex(RuntimeError, "bad bulk read"):
+            wrapper.read_gps_many([Path("/tmp/photo.jpg")])
 
     def test_write_gps_builds_expected_command_for_negative_values(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
+        wrapper, execute_mock = self._wrapper_with_reply()
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0),
-        ) as run_mock:
-            wrapper.write_gps(Path("/tmp/photo.jpg"), -40.5, -111.8)
+        wrapper.write_gps(Path("/tmp/photo.jpg"), -40.5, -111.8)
 
-        command = run_mock.call_args.args[0]
-        self.assertIn("-GPSLatitude=40.5", command)
-        self.assertIn("-GPSLatitudeRef=S", command)
-        self.assertIn("-GPSLongitude=111.8", command)
-        self.assertIn("-GPSLongitudeRef=W", command)
+        arguments = execute_mock.call_args.args[0]
+        self.assertIn("-overwrite_original", arguments)
+        self.assertIn("-GPSLatitude=40.5", arguments)
+        self.assertIn("-GPSLatitudeRef=S", arguments)
+        self.assertIn("-GPSLongitude=111.8", arguments)
+        self.assertIn("-GPSLongitudeRef=W", arguments)
+        self.assertEqual(arguments[-1], str(Path("/tmp/photo.jpg")))
+
+    def test_write_gps_raises_runtime_error_on_failure(self) -> None:
+        wrapper, _ = self._wrapper_with_reply(status=1, errors="bad write")
+
+        with self.assertRaisesRegex(RuntimeError, "bad write"):
+            wrapper.write_gps(Path("/tmp/photo.jpg"), 40.5, -111.8)
 
     def test_clear_gps_blanks_gps_tags(self) -> None:
+        wrapper, execute_mock = self._wrapper_with_reply()
+
+        wrapper.clear_gps(Path("/tmp/photo.jpg"))
+
+        arguments = execute_mock.call_args.args[0]
+        self.assertIn("-overwrite_original", arguments)
+        self.assertIn("-GPSLatitude=", arguments)
+        self.assertIn("-GPSLongitudeRef=", arguments)
+        self.assertEqual(arguments[-1], str(Path("/tmp/photo.jpg")))
+
+    def test_process_is_guarded_stay_open_utf8_and_hidden_console_window(self) -> None:
         wrapper = ExifToolWrapper("exiftool")
+        fake_process = MagicMock()
+        fake_process.poll.return_value = None
+        fake_process.stdout = iter([])
+        fake_process.stderr = iter([])
 
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0),
-        ) as run_mock:
-            wrapper.clear_gps(Path("/tmp/photo.jpg"))
+        with (
+            patch(
+                "core.exiftool_wrapper.start_guarded_process",
+                return_value=fake_process,
+            ) as popen_mock,
+            patch("core.exiftool_wrapper.atexit.register"),
+        ):
+            wrapper._ensure_process()
 
-        command = run_mock.call_args.args[0]
-        self.assertIn("-overwrite_original", command)
-        self.assertIn("-GPSLatitude=", command)
-        self.assertIn("-GPSLongitudeRef=", command)
         self.assertEqual(
-            run_mock.call_args.kwargs["input"],
-            f"{Path('/tmp/photo.jpg')}\n",
+            popen_mock.call_args.args[0],
+            ["exiftool", "-stay_open", "True", "-@", "-"],
         )
-
-    def test_runs_use_utf8_and_hidden_console_window(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
-
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(0, stdout="[]"),
-        ) as run_mock:
-            wrapper.read_gps(Path("/tmp/photo.jpg"))
-
-        kwargs = run_mock.call_args.kwargs
+        kwargs = popen_mock.call_args.kwargs
         self.assertEqual(kwargs["encoding"], "utf-8")
         self.assertEqual(
             kwargs["creationflags"],
             getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
-    def test_write_gps_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper("exiftool")
-
-        with patch(
-            "core.exiftool_wrapper.subprocess.run",
-            return_value=CompletedProcessStub(1, stderr="bad write"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "bad write"):
-                wrapper.write_gps(Path("/tmp/photo.jpg"), 40.5, -111.8)
-
 
 @unittest.skipUnless(ExifToolWrapper().is_available(), "ExifTool is not installed")
 class ExifToolWrapperIntegrationTests(unittest.TestCase):
-    def test_write_read_clear_round_trip_with_unicode_file_name(self) -> None:
+    """
+    Tests against the real ExifTool program, including the long-running
+    process protocol. Skipped when ExifTool is not installed.
+    """
+
+    def setUp(self) -> None:
+        self.wrapper = ExifToolWrapper()
+        self.addCleanup(self.wrapper.close)
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.temp_path = Path(temp_dir.name)
+
+    def _make_photo(self, name: str) -> Path:
         # Pillow is a desktop dependency; it is only used here to make a JPEG.
         from PIL import Image
 
-        wrapper = ExifToolWrapper()
+        photo = self.temp_path / name
+        Image.new("RGB", (8, 8), "white").save(photo)
+        return photo
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            photo = Path(temp_dir) / "Café 東京 #1.jpg"
-            Image.new("RGB", (8, 8), "white").save(photo)
+    def test_write_read_clear_round_trip_with_unicode_file_name(self) -> None:
+        photo = self._make_photo("Café 東京 #1.jpg")
 
-            wrapper.write_gps(photo, -33.8568, 151.2153)
-            gps = wrapper.read_gps(photo)
-            self.assertAlmostEqual(gps["latitude"], -33.8568, places=4)
-            self.assertAlmostEqual(gps["longitude"], 151.2153, places=4)
+        self.wrapper.write_gps(photo, -33.8568, 151.2153)
+        gps = self.wrapper.read_gps(photo)
+        self.assertAlmostEqual(gps["latitude"], -33.8568, places=4)
+        self.assertAlmostEqual(gps["longitude"], 151.2153, places=4)
 
-            bulk = wrapper.read_gps_many([photo])
-            self.assertAlmostEqual(bulk[photo]["latitude"], -33.8568, places=4)
+        bulk = self.wrapper.read_gps_many([photo])
+        self.assertAlmostEqual(bulk[photo]["latitude"], -33.8568, places=4)
 
-            wrapper.clear_gps(photo)
-            self.assertEqual(
-                wrapper.read_gps(photo),
-                {"latitude": None, "longitude": None},
-            )
+        self.wrapper.clear_gps(photo)
+        self.assertEqual(
+            self.wrapper.read_gps(photo),
+            {"latitude": None, "longitude": None},
+        )
+
+    def test_one_process_serves_many_commands(self) -> None:
+        photos = [self._make_photo(f"photo_{index}.jpg") for index in range(5)]
+
+        for photo in photos:
+            self.wrapper.write_gps(photo, 40.7608, -111.891)
+        process_id = self.wrapper._process.pid
+
+        results = self.wrapper.read_gps_many(photos)
+
+        self.assertEqual(self.wrapper._process.pid, process_id)
+        self.assertEqual(len(results), 5)
+        for gps in results.values():
+            self.assertAlmostEqual(gps["latitude"], 40.7608, places=4)
+
+    def test_error_is_reported_and_process_keeps_working(self) -> None:
+        photo = self._make_photo("good.jpg")
+
+        with self.assertRaisesRegex(RuntimeError, "(?i)error"):
+            self.wrapper.write_gps(self.temp_path / "missing.jpg", 1.0, 2.0)
+
+        process_id = self.wrapper._process.pid
+        self.wrapper.write_gps(photo, 1.5, 2.5)
+
+        self.assertEqual(self.wrapper._process.pid, process_id)
+        self.assertAlmostEqual(self.wrapper.read_gps(photo)["latitude"], 1.5, places=4)
+
+    def test_new_process_starts_after_exiftool_dies(self) -> None:
+        photo = self._make_photo("restart.jpg")
+        self.wrapper.read_gps(photo)
+        old_process = self.wrapper._process
+
+        old_process.kill()
+        old_process.wait()
+
+        self.wrapper.write_gps(photo, 10.0, 20.0)
+        self.assertIsNot(self.wrapper._process, old_process)
+        self.assertAlmostEqual(self.wrapper.read_gps(photo)["latitude"], 10.0, places=4)
+
+    def test_close_stops_process(self) -> None:
+        photo = self._make_photo("close.jpg")
+        self.wrapper.read_gps(photo)
+        process = self.wrapper._process
+
+        self.wrapper.close()
+
+        self.assertIsNotNone(process.poll())
+        self.assertIsNone(self.wrapper._process)
 
 
 if __name__ == "__main__":

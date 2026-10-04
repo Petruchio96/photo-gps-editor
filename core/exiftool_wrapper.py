@@ -11,21 +11,32 @@ Why this file exists:
 Why ExifTool:
     ExifTool is the most reliable way to work with metadata across JPG and many
     RAW formats like CR2, CR3, and DNG.
+
+Why one long-running ExifTool process:
+    Starting ExifTool (a Perl program) takes far longer than the GPS read or
+    write itself. ExifTool's "-stay_open" mode keeps one process running and
+    accepts one command after another through stdin, so batches of photos
+    no longer pay the startup cost for every file.
 """
 
 from __future__ import annotations
 
+import atexit
+import itertools
 import json
+import queue
 import shutil
 import subprocess
+import threading
 from pathlib import Path
+from typing import IO
 
+from core.process_guard import NO_WINDOW_FLAGS, start_guarded_process, stop_process_tree
 from core.runtime_paths import default_exiftool_executable
 
-# On Windows, a GUI app that starts a console program flashes a console window
-# unless told not to. CREATE_NO_WINDOW only exists on Windows; 0 is a no-op
-# value for creationflags on other platforms.
-_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# How long to wait for one ExifTool command before giving up. Large RAW batches
+# can take a while, so this is generous; it only guards against a hung process.
+COMMAND_TIMEOUT_SECONDS = 300
 
 
 class ExifToolWrapper:
@@ -46,6 +57,15 @@ class ExifToolWrapper:
                 Usually just "exiftool" if it is installed in PATH.
         """
         self.executable = executable or default_exiftool_executable()
+
+        # The long-running ExifTool process is started on first use.
+        self._process: subprocess.Popen | None = None
+        self._stdout_lines: queue.Queue[str | None] = queue.Queue()
+        self._stderr_lines: queue.Queue[str | None] = queue.Queue()
+        self._command_numbers = itertools.count(1)
+        # Only one command may talk to the process at a time.
+        self._lock = threading.Lock()
+        self._registered_atexit = False
 
     def is_available(self) -> bool:
         """
@@ -188,57 +208,218 @@ class ExifToolWrapper:
             "Failed to clear metadata.",
         )
 
+    def close(self) -> None:
+        """
+        Stop the long-running ExifTool process, if one is running.
+
+        Safe to call more than once. A later command starts a new process.
+        """
+        with self._lock:
+            self._stop_process()
+
+    def __enter__(self) -> ExifToolWrapper:
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
     def _run(self, options: list[str], paths: list[Path], failure_message: str) -> str:
         """
-        Run ExifTool with the given options on the given files.
+        Run one ExifTool command with the given options on the given files.
 
-        Why file paths go through stdin instead of the command line:
-            On Windows, command-line arguments are limited to the system code
-            page, so some file names (for example Japanese or emoji characters)
-            cannot be passed correctly. ExifTool's recommended fix is to list
-            the files in a UTF-8 argument file ("-@ -" reads it from stdin) and
-            set "-charset filename=utf8". This works the same on every platform.
+        Why everything goes through stdin instead of the command line:
+            The long-running process reads its commands from stdin anyway.
+            This also fixes Windows file names: command-line arguments there
+            are limited to the system code page, so some names (for example
+            Japanese or emoji characters) cannot be passed correctly. ExifTool's
+            recommended fix is a UTF-8 argument list plus "-charset filename=utf8".
 
         Args:
             options:
                 ExifTool options to use, such as ["-json", "-n"].
             paths:
                 Files to process. These should be absolute paths, because
-                ExifTool argument files ignore lines starting with "#" and
+                ExifTool argument lists ignore lines starting with "#" and
                 strip leading spaces.
             failure_message:
                 Error text used when ExifTool fails without printing a reason.
 
         Returns:
-            ExifTool's standard output as text.
+            ExifTool's standard output for this command as text.
 
         Raises:
             RuntimeError:
-                If ExifTool returns a non-zero exit code.
+                If the command fails, or ExifTool stops or stops responding.
         """
-        command = [
-            self.executable,
-            "-charset",
-            "filename=utf8",
-            *options,
-            "-@",
-            "-",
-        ]
+        arguments = ["-charset", "filename=utf8", *options, *[str(path) for path in paths]]
+        status, output, errors = self._execute(arguments)
 
-        result = subprocess.run(
-            command,
-            input="".join(f"{path}\n" for path in paths),
-            capture_output=True,
+        if status != 0:
+            raise RuntimeError(errors.strip() or failure_message)
+
+        return output
+
+    def _execute(self, arguments: list[str]) -> tuple[int, str, str]:
+        """
+        Send one command to the long-running ExifTool process.
+
+        Protocol (see "-stay_open" in the ExifTool documentation):
+            1. Write the arguments, one per line.
+            2. "-echo4 {statusN}${status}" makes ExifTool print the command's
+               exit status to stderr once it finishes.
+            3. "-executeN" runs the command; ExifTool then prints "{readyN}" to
+               stdout. N is a unique number, so replies cannot get mixed up.
+
+        Returns:
+            (exit status, stdout text, stderr text) for this command.
+        """
+        with self._lock:
+            process = self._ensure_process()
+            number = next(self._command_numbers)
+            ready_marker = f"{{ready{number}}}"
+            status_marker = f"{{status{number}}}"
+
+            request = "\n".join(
+                [*arguments, "-echo4", status_marker + "${status}", f"-execute{number}"]
+            )
+            try:
+                process.stdin.write(request + "\n")
+                process.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError) as exc:
+                self._stop_process()
+                raise RuntimeError("ExifTool stopped unexpectedly.") from exc
+
+            output_lines = self._read_until(
+                self._stdout_lines,
+                lambda line: line == ready_marker,
+            )
+            error_lines = self._read_until(
+                self._stderr_lines,
+                lambda line: line.startswith(status_marker),
+            )
+
+        # Drop the marker lines; they are protocol, not command output.
+        output_lines.pop()
+        status_line = error_lines.pop()
+        error_text = "\n".join(error_lines)
+        status_text = status_line[len(status_marker):]
+        if status_text.isdigit():
+            status = int(status_text)
+        else:
+            # Very old ExifTool versions do not support ${status}; fall back to
+            # treating any "Error" message as a failure.
+            status = 1 if "Error" in error_text else 0
+
+        return status, "\n".join(output_lines), error_text
+
+    def _read_until(self, lines: queue.Queue[str | None], is_marker) -> list[str]:
+        """
+        Collect lines from one ExifTool output stream up to and including a marker.
+
+        Raises:
+            RuntimeError:
+                If ExifTool exits or does not answer within the timeout. The
+                process is stopped so the next command starts a fresh one.
+        """
+        collected: list[str] = []
+        while True:
+            try:
+                line = lines.get(timeout=COMMAND_TIMEOUT_SECONDS)
+            except queue.Empty:
+                self._stop_process()
+                raise RuntimeError("ExifTool stopped responding.") from None
+
+            if line is None:
+                self._stop_process()
+                raise RuntimeError("ExifTool stopped unexpectedly.")
+
+            collected.append(line)
+            if is_marker(line):
+                return collected
+
+    def _ensure_process(self) -> subprocess.Popen:
+        """
+        Return the running ExifTool process, starting a new one if needed.
+        """
+        if self._process is not None and self._process.poll() is None:
+            return self._process
+
+        self._stop_process()
+
+        # Guarded so ExifTool cannot keep running if the app crashes.
+        process = start_guarded_process(
+            [self.executable, "-stay_open", "True", "-@", "-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             # ExifTool writes UTF-8; do not rely on the OS default encoding,
             # which is Windows-1252 on many Windows systems.
             encoding="utf-8",
             errors="replace",
-            check=False,
-            creationflags=_NO_WINDOW_FLAGS,
+            creationflags=NO_WINDOW_FLAGS,
         )
 
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or failure_message)
+        # Fresh queues, so nothing from an old process can leak into replies.
+        self._stdout_lines = queue.Queue()
+        self._stderr_lines = queue.Queue()
 
-        return result.stdout
+        # Read stdout and stderr on background threads. Reading only one of them
+        # could deadlock if ExifTool fills the other pipe's buffer.
+        for stream, lines in (
+            (process.stdout, self._stdout_lines),
+            (process.stderr, self._stderr_lines),
+        ):
+            threading.Thread(
+                target=_pump_lines,
+                args=(stream, lines),
+                daemon=True,
+            ).start()
+
+        if not self._registered_atexit:
+            atexit.register(self.close)
+            self._registered_atexit = True
+
+        self._process = process
+        return process
+
+    def _stop_process(self) -> None:
+        """
+        Ask ExifTool to exit, and force it if it does not. Caller holds the lock.
+        """
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+
+        if process.poll() is None:
+            try:
+                process.stdin.write("-stay_open\nFalse\n")
+                process.stdin.flush()
+                process.wait(timeout=5)
+            except (BrokenPipeError, OSError, ValueError, subprocess.TimeoutExpired):
+                pass
+
+        # Kills ExifTool if it is still running, plus any helper processes.
+        stop_process_tree(process)
+
+        for stream in (process.stdin, process.stdout, process.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+def _pump_lines(stream: IO[str], lines: queue.Queue[str | None]) -> None:
+    """
+    Copy lines from an ExifTool output stream into a queue until it closes.
+
+    None is queued at the end so readers know the process has exited.
+    """
+    try:
+        for line in stream:
+            lines.put(line.rstrip("\r\n"))
+    except (OSError, ValueError):
+        pass
+    finally:
+        lines.put(None)

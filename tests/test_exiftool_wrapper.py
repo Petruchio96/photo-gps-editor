@@ -172,6 +172,70 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-JpgFromRaw", calls[2].args[0])
         self.assertEqual(calls[2].args[0][-1], str(none))
 
+    def test_gps_read_captures_raw_thumbnails_so_files_are_opened_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            cr3 = folder / "with-thumbnail.CR3"
+            dng = folder / "without-thumbnail.dng"
+            jpg = folder / "photo.jpg"
+            for path in (cr3, dng, jpg):
+                path.write_bytes(b"data")
+            encoded = "base64:" + base64.b64encode(b"small-jpeg").decode()
+            wrapper = ExifToolWrapper("exiftool")
+            wrapper._execute = MagicMock(
+                side_effect=[
+                    # GPS read for JPEGs: no thumbnail options.
+                    (0, json.dumps([{"SourceFile": str(jpg)}]), ""),
+                    # GPS read for RAW files also returns small thumbnails.
+                    (0, json.dumps([
+                        {"SourceFile": str(cr3), "GPSLatitude": 1.0, "GPSLongitude": 2.0,
+                         "ThumbnailImage": encoded, "Orientation": 8},
+                        {"SourceFile": str(dng)},
+                    ]), ""),
+                    # Thumbnail request: only the DNG, straight to PreviewImage.
+                    (0, json.dumps([
+                        {"SourceFile": str(dng), "PreviewImage": encoded, "Orientation": 1},
+                    ]), ""),
+                ]
+            )
+
+            gps = wrapper.read_gps_many([cr3, jpg, dng])
+            previews = wrapper.read_embedded_previews([cr3, dng])
+
+        self.assertEqual(gps[cr3], {"latitude": 1.0, "longitude": 2.0})
+        self.assertEqual(previews, {cr3: (b"small-jpeg", 8), dng: (b"small-jpeg", 1)})
+
+        calls = [call.args[0] for call in wrapper._execute.call_args_list]
+        self.assertEqual(len(calls), 3)
+        self.assertNotIn("-ThumbnailImage", calls[0])
+        self.assertEqual(calls[0][-1], str(jpg))
+        self.assertIn("-ThumbnailImage", calls[1])
+        self.assertEqual(calls[1][-2:], [str(cr3), str(dng)])
+        self.assertIn("-PreviewImage", calls[2])
+        self.assertEqual(calls[2][-1], str(dng))
+        self.assertNotIn(str(cr3), calls[2])
+
+    def test_remembered_thumbnail_is_ignored_after_file_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cr3 = Path(temp_dir) / "photo.cr3"
+            cr3.write_bytes(b"data")
+            old = "base64:" + base64.b64encode(b"old").decode()
+            new = "base64:" + base64.b64encode(b"new").decode()
+            wrapper = ExifToolWrapper("exiftool")
+            wrapper._execute = MagicMock(
+                side_effect=[
+                    (0, json.dumps([{"SourceFile": str(cr3), "ThumbnailImage": old}]), ""),
+                    (0, json.dumps([{"SourceFile": str(cr3), "ThumbnailImage": new}]), ""),
+                ]
+            )
+
+            wrapper.read_gps_many([cr3])
+            cr3.write_bytes(b"changed data")  # e.g. GPS was written in between
+            previews = wrapper.read_embedded_previews([cr3])
+
+        self.assertEqual(previews, {cr3: (b"new", 1)})
+        self.assertIn("-ThumbnailImage", wrapper._execute.call_args.args[0])
+
     def test_read_embedded_preview_defaults_bad_orientation_to_normal(self) -> None:
         photo = Path("/tmp/photo.cr2")
         encoded = "base64:" + base64.b64encode(b"jpeg").decode()

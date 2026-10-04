@@ -32,6 +32,7 @@ import threading
 from pathlib import Path
 from typing import IO
 
+from core.file_types import is_raw_file
 from core.process_guard import NO_WINDOW_FLAGS, start_guarded_process, stop_process_tree
 from core.runtime_paths import default_exiftool_executable
 
@@ -39,6 +40,10 @@ from core.runtime_paths import default_exiftool_executable
 # Many RAW files have a small ThumbnailImage; others only have a larger
 # PreviewImage or a full-size JpgFromRaw.
 EMBEDDED_PREVIEW_TAGS = ("ThumbnailImage", "PreviewImage", "JpgFromRaw")
+
+# Upper bound on thumbnails remembered between the GPS read and the thumbnail
+# request (see read_gps_many). Entries are removed as soon as they are used.
+MAX_REMEMBERED_THUMBNAILS = 2048
 
 # How long to wait for one ExifTool command before giving up. Large RAW batches
 # can take a while, so this is generous; it only guards against a hung process.
@@ -77,6 +82,14 @@ class ExifToolWrapper:
         # Only one command may talk to the process at a time.
         self._lock = threading.Lock()
         self._registered_atexit = False
+
+        # Small RAW thumbnails captured during read_gps_many(), waiting for
+        # read_embedded_previews() to pick them up. Keyed by (path, modified
+        # time, size) so a changed file never gets a stale thumbnail. None means
+        # "this file has no small thumbnail", which is also worth remembering.
+        self._remembered_thumbnails: dict[
+            tuple[Path, int, int], tuple[bytes, int] | None
+        ] = {}
 
     def is_available(self) -> bool:
         """
@@ -139,13 +152,37 @@ class ExifToolWrapper:
 
     def read_gps_many(self, paths: list[Path]) -> dict[Path, dict]:
         """
-        Read GPS metadata for many files with one ExifTool invocation.
+        Read GPS metadata for many files with one ExifTool command per file type.
+
+        Why RAW files are read separately:
+            While ExifTool has a RAW file open for its GPS data, it can also
+            return the small thumbnail stored inside it. Remembering that
+            thumbnail saves opening every RAW file a second time when the
+            thumbnail grid is drawn, which matters most for files on a
+            network share. JPEGs don't need this; their thumbnails are made
+            from the image itself.
         """
         if not paths:
             return {}
 
+        raw_paths = [path for path in paths if is_raw_file(path)]
+        other_paths = [path for path in paths if not is_raw_file(path)]
+
+        gps_by_path: dict[Path, dict] = {}
+        if other_paths:
+            gps_by_path.update(self._read_gps_records(other_paths, with_thumbnails=False))
+        if raw_paths:
+            gps_by_path.update(self._read_gps_records(raw_paths, with_thumbnails=True))
+
+        return gps_by_path
+
+    def _read_gps_records(self, paths: list[Path], *, with_thumbnails: bool) -> dict[Path, dict]:
+        """
+        Run one bulk GPS read, optionally capturing small embedded thumbnails.
+        """
+        extra_options = ["-b", "-ThumbnailImage", "-Orientation"] if with_thumbnails else []
         output = self._run(
-            ["-json", "-n", "-GPSLatitude", "-GPSLongitude"],
+            ["-json", "-n", *extra_options, "-GPSLatitude", "-GPSLongitude"],
             paths,
             "Failed to read metadata.",
         )
@@ -157,12 +194,24 @@ class ExifToolWrapper:
             if source_file is None:
                 continue
 
-            gps_by_path[Path(source_file)] = {
+            path = Path(source_file)
+            gps_by_path[path] = {
                 "latitude": record.get("GPSLatitude"),
                 "longitude": record.get("GPSLongitude"),
             }
 
+            if with_thumbnails:
+                self._remember_thumbnail(path, _decode_preview(record, "ThumbnailImage"))
+
         return gps_by_path
+
+    def _remember_thumbnail(self, path: Path, preview: tuple[bytes, int] | None) -> None:
+        key = _file_key(path)
+        if key is None:
+            return
+        if len(self._remembered_thumbnails) >= MAX_REMEMBERED_THUMBNAILS:
+            self._remembered_thumbnails.clear()
+        self._remembered_thumbnails[key] = preview
 
     def read_embedded_preview(self, path: Path) -> tuple[bytes, int] | None:
         """
@@ -178,9 +227,10 @@ class ExifToolWrapper:
         """
         Read the JPEG previews stored inside RAW files, for thumbnails.
 
-        Uses one ExifTool command per preview type rather than one per file,
-        which roughly halves the time for large batches. Small previews are
-        tried first; only files without one are asked for a larger preview.
+        Small thumbnails already captured by read_gps_many() are used without
+        opening the file again. Otherwise one ExifTool command is used per
+        preview type rather than one per file, smallest type first; only files
+        without a small preview are asked for a larger one.
 
         Returns:
             {path: (JPEG bytes, EXIF orientation)} for every file that has an
@@ -190,11 +240,28 @@ class ExifToolWrapper:
             are stored unrotated.
         """
         previews: dict[Path, tuple[bytes, int]] = {}
-        remaining = list(paths)
+        # Files the GPS read showed have no small thumbnail; skip asking again.
+        known_without_thumbnail: set[Path] = set()
+
+        for path in paths:
+            key = _file_key(path)
+            if key is None or key not in self._remembered_thumbnails:
+                continue
+            remembered = self._remembered_thumbnails.pop(key)
+            if remembered is None:
+                known_without_thumbnail.add(path)
+            else:
+                previews[path] = remembered
+
+        remaining = [path for path in paths if path not in previews]
 
         for tag in EMBEDDED_PREVIEW_TAGS:
-            if not remaining:
-                break
+            candidates = [
+                path for path in remaining
+                if not (tag == "ThumbnailImage" and path in known_without_thumbnail)
+            ]
+            if not candidates:
+                continue
 
             # With -json, "-b" returns binary data as "base64:..." text, which
             # travels safely through the text connection to ExifTool. The exit
@@ -209,7 +276,7 @@ class ExifToolWrapper:
                     "-n",
                     f"-{tag}",
                     "-Orientation",
-                    *[str(path) for path in remaining],
+                    *[str(path) for path in candidates],
                 ]
             )
             try:
@@ -219,19 +286,9 @@ class ExifToolWrapper:
 
             for record in records:
                 source_file = record.get("SourceFile")
-                value = record.get(tag)
-                if source_file is None or not isinstance(value, str):
-                    continue
-                if not value.startswith("base64:"):
-                    continue
-
-                orientation = record.get("Orientation")
-                if not isinstance(orientation, int) or not 1 <= orientation <= 8:
-                    orientation = 1
-                previews[Path(source_file)] = (
-                    base64.b64decode(value[len("base64:"):]),
-                    orientation,
-                )
+                preview = _decode_preview(record, tag)
+                if source_file is not None and preview is not None:
+                    previews[Path(source_file)] = preview
 
             remaining = [path for path in remaining if path not in previews]
 
@@ -498,6 +555,33 @@ class ExifToolWrapper:
                 stream.close()
             except OSError:
                 pass
+
+
+def _decode_preview(record: dict, tag: str) -> tuple[bytes, int] | None:
+    """
+    Pull a base64 preview image and the orientation out of one JSON record.
+
+    Returns None if the record has no such preview.
+    """
+    value = record.get(tag)
+    if not isinstance(value, str) or not value.startswith("base64:"):
+        return None
+
+    orientation = record.get("Orientation")
+    if not isinstance(orientation, int) or not 1 <= orientation <= 8:
+        orientation = 1
+    return base64.b64decode(value[len("base64:"):]), orientation
+
+
+def _file_key(path: Path) -> tuple[Path, int, int] | None:
+    """
+    Identify a specific version of a file: its path, modified time, and size.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (path, stat.st_mtime_ns, stat.st_size)
 
 
 def _pump_lines(stream: IO[str], lines: queue.Queue[str | None]) -> None:

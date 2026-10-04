@@ -136,6 +136,18 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-GPSLongitudeRef=", arguments)
         self.assertEqual(arguments[-1], str(Path("/tmp/photo.jpg")))
 
+    def test_keep_backups_leaves_out_overwrite_original(self) -> None:
+        wrapper, execute_mock = self._wrapper_with_reply()
+
+        wrapper.write_gps(Path("/tmp/photo.jpg"), 1.0, 2.0)
+        self.assertIn("-overwrite_original", execute_mock.call_args.args[0])
+
+        wrapper.keep_backups = True
+        wrapper.write_gps(Path("/tmp/photo.jpg"), 1.0, 2.0)
+        self.assertNotIn("-overwrite_original", execute_mock.call_args.args[0])
+        wrapper.clear_gps(Path("/tmp/photo.jpg"))
+        self.assertNotIn("-overwrite_original", execute_mock.call_args.args[0])
+
     def test_process_is_guarded_stay_open_utf8_and_hidden_console_window(self) -> None:
         wrapper = ExifToolWrapper("exiftool")
         fake_process = MagicMock()
@@ -202,6 +214,28 @@ class ExifToolWrapperIntegrationTests(unittest.TestCase):
             self.wrapper.read_gps(photo),
             {"latitude": None, "longitude": None},
         )
+
+    def test_backup_keeps_untouched_original_across_edits(self) -> None:
+        photo = self._make_photo("backup.jpg")
+        backup = photo.with_name("backup.jpg_original")
+        self.wrapper.keep_backups = True
+
+        self.wrapper.write_gps(photo, 1.0, 2.0)
+        self.wrapper.write_gps(photo, 3.0, 4.0)
+        self.wrapper.clear_gps(photo)
+
+        self.assertTrue(backup.exists())
+        self.assertEqual(
+            self.wrapper.read_gps(backup),
+            {"latitude": None, "longitude": None},
+        )
+
+    def test_no_backup_file_by_default(self) -> None:
+        photo = self._make_photo("no-backup.jpg")
+
+        self.wrapper.write_gps(photo, 1.0, 2.0)
+
+        self.assertFalse(photo.with_name("no-backup.jpg_original").exists())
 
     def test_one_process_serves_many_commands(self) -> None:
         photos = [self._make_photo(f"photo_{index}.jpg") for index in range(5)]

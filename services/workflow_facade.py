@@ -17,6 +17,7 @@ from services.models import (
 )
 from services.photo_metadata_cache import PhotoMetadataCache
 from services.workflow_controller import (
+    clear_gps_workflow,
     clear_source_workflow,
     execute_apply_workflow,
     load_source_workflow,
@@ -80,12 +81,26 @@ class PhotoWorkflowFacade:
             cache=self.metadata_cache,
         )
 
+    def clear_gps_workflow(
+        self,
+        *,
+        session: WorkflowSession,
+        target_paths: list[Path],
+    ) -> ApplyWorkflowResult:
+        return clear_gps_workflow(
+            session=session,
+            target_paths=target_paths,
+            writer=self.writer,
+            loader=self.loader,
+            cache=self.metadata_cache,
+        )
+
     def restore_gps_states_workflow(
         self,
         *,
         session: WorkflowSession,
         states: dict[Path, tuple[float | None, float | None]],
-    ) -> WorkflowSession:
+    ) -> ApplyWorkflowResult:
         return restore_gps_states_workflow(
             session=session,
             states=states,

@@ -15,6 +15,7 @@ The app supports JPG thumbnails, selected RAW formats, grouped browsing of photo
 - Apply GPS coordinates to a batch of selected photos.
 - Clear GPS coordinates from photos that already have them.
 - Undo or redo the most recent GPS apply/clear action while the app is open.
+- Optionally keep a backup copy of each original file (Edit > Keep Backup Copies of Originals).
 
 ## Local Development Instructions
 

@@ -1,12 +1,13 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
@@ -32,6 +33,8 @@ class FakeExifTool:
         self.gps_by_path[path] = (latitude, longitude)
 
     def clear_gps(self, path: Path) -> None:
+        if path in self.failures:
+            raise self.failures[path]
         self.clears.append(path)
         self.gps_by_path[path] = (None, None)
 
@@ -65,7 +68,14 @@ class MainWindowSmokeTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self.window = MainWindow()
+        # Use a throwaway settings file so tests never read or change the
+        # user's real preferences.
+        settings_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(settings_dir.cleanup)
+        self.settings_path = Path(settings_dir.name) / "settings.ini"
+        self.settings = QSettings(str(self.settings_path), QSettings.IniFormat)
+
+        self.window = MainWindow(settings=self.settings)
         self.window.show()
 
         self.source_path = Path("/tmp/source.jpg")
@@ -622,12 +632,68 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.add_selected_photos_to_target_list()
         self.window.exiftool.failures[self.paths[1]] = RuntimeError("disk full")
 
-        self.window.apply_coordinates_to_selected()
+        with patch.object(self.window, "_report_write_failures") as report_mock:
+            self.window.apply_coordinates_to_selected()
 
         self.assertEqual(
             self.window.exiftool.writes,
             [(self.paths[0], 40.486325, -111.813415)],
         )
+        report_mock.assert_called_once_with(
+            "apply GPS to",
+            ["photo-two.jpg: disk full"],
+        )
+        # Only the file that changed can be undone.
+        self.assertEqual(
+            self.window.gps_history.undo_states(),
+            {self.paths[0]: (None, None)},
+        )
+
+    def test_write_failure_dialog_lists_each_file(self) -> None:
+        with patch("gui.main_window.QMessageBox.exec") as exec_mock, patch(
+            "gui.main_window.QMessageBox.setDetailedText"
+        ) as details_mock:
+            self.window._report_write_failures("apply GPS to", ["a.jpg: locked"])
+
+        exec_mock.assert_called_once()
+        details_mock.assert_called_once_with("a.jpg: locked")
+
+    def test_no_failure_dialog_when_everything_succeeds(self) -> None:
+        with patch("gui.main_window.QMessageBox.exec") as exec_mock:
+            self.window._report_write_failures("apply GPS to", [])
+
+        exec_mock.assert_not_called()
+
+    def test_undo_reports_files_that_could_not_be_restored(self) -> None:
+        self.window._load_source_photo(self.source_path)
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+        self.window.apply_coordinates_to_selected()
+        self.window.exiftool.failures[self.paths[0]] = RuntimeError("read-only")
+
+        with patch.object(self.window, "_report_write_failures") as report_mock:
+            self.window.undo_action.trigger()
+
+        report_mock.assert_called_once_with(
+            "undo the GPS change for",
+            ["photo-one.jpg: read-only"],
+        )
+        # The other file was still restored.
+        self.assertEqual(self.gps_by_path[self.paths[1]], (None, None))
+        self.assertTrue(self.window.redo_action.isEnabled())
+
+    def test_keep_backups_option_is_saved_and_applied(self) -> None:
+        self.assertFalse(self.window.keep_backups_action.isChecked())
+
+        self.window.keep_backups_action.setChecked(True)
+
+        self.assertTrue(self.window.workflow.writer.keep_backups)
+        self.assertTrue(self.settings.value("keep_backup_copies", type=bool))
+
+        reopened = MainWindow(settings=QSettings(str(self.settings_path), QSettings.IniFormat))
+        self.addCleanup(reopened.close)
+        self.assertTrue(reopened.keep_backups_action.isChecked())
+        self.assertTrue(reopened.workflow.writer.keep_backups)
 
     def test_remove_selected_photos_button_updates_target_list(self) -> None:
         self.window.select_all_photos()
@@ -690,6 +756,42 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.gps_by_path[self.paths[0]], (None, None))
         self.assertTrue(self.window.undo_action.isEnabled())
         self.assertFalse(self.window.redo_action.isEnabled())
+
+    def _confirm_clear_coordinates(self) -> None:
+        continue_button = object()
+        cancel_button = object()
+        with patch(
+            "gui.window_mixins.source_editor.QMessageBox.addButton",
+            side_effect=[continue_button, cancel_button],
+        ), patch(
+            "gui.window_mixins.source_editor.QMessageBox.exec",
+        ), patch(
+            "gui.window_mixins.source_editor.QMessageBox.setDefaultButton",
+        ), patch(
+            "gui.window_mixins.source_editor.QMessageBox.clickedButton",
+            return_value=continue_button,
+        ):
+            self.window.clear_selected_target_coordinates()
+
+    def test_clear_coordinates_continues_past_a_failed_file(self) -> None:
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.gps_by_path[self.paths[1]] = (42.0, -113.0)
+        self.window.populate_list()
+        self.window.select_all_photos()
+        self.window.add_selected_photos_to_target_list()
+        self.window.exiftool.failures[self.paths[0]] = RuntimeError("locked")
+
+        with patch.object(self.window, "_report_write_failures") as report_mock:
+            self._confirm_clear_coordinates()
+
+        self.assertEqual(self.window.exiftool.clears, [self.paths[1]])
+        self.assertEqual(self.gps_by_path[self.paths[0]], (41.0, -112.0))
+        self.assertEqual(self.gps_by_path[self.paths[1]], (None, None))
+        report_mock.assert_called_once_with("clear GPS from", ["photo-one.jpg: locked"])
+        self.assertEqual(
+            self.window.gps_history.undo_states(),
+            {self.paths[1]: (42.0, -113.0)},
+        )
 
 
 if __name__ == "__main__":

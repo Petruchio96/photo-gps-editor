@@ -87,5 +87,4 @@ class ApplyWorkflowMixin:
         else:
             self._clear_gps_edit_history()
 
-        if result.failed_paths:
-            self._last_apply_failures = list(result.failed_paths)
+        self._report_write_failures("apply GPS to", list(result.failed_paths))

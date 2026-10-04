@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,10 +29,14 @@ from gui.widgets.editor_panel import build_editor_panel
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
 from gui.window_mixins.photo_list import PhotoListMixin
 from gui.window_mixins.source_editor import SourceEditorMixin
+from services.gps_edit_history import GpsEditHistory
 from services.models import OverwriteEntry, WorkflowSession
 from services.workflow_facade import PhotoWorkflowFacade
 
 APP_VERSION = "1.1"
+
+# QSettings key for the "Keep Backup Copies of Originals" option.
+KEEP_BACKUPS_SETTING = "keep_backup_copies"
 
 
 class MainWindow(
@@ -48,8 +52,11 @@ class MainWindow(
     mixins handle the larger groups of UI actions.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, settings: QSettings | None = None) -> None:
         super().__init__()
+
+        # Saved preferences. Tests pass their own QSettings to stay isolated.
+        self.settings = settings if settings is not None else QSettings()
 
         self.setWindowTitle("Photo GPS Editor")
         self.resize(1500, 920)
@@ -65,8 +72,7 @@ class MainWindow(
         self._syncing_target_selection = False
         self._last_status_message = ""
         self._last_status_tone = "info"
-        self._undo_gps_states: dict[Path, tuple[float | None, float | None]] = {}
-        self._redo_gps_states: dict[Path, tuple[float | None, float | None]] = {}
+        self.gps_history = GpsEditHistory()
 
         self._build_ui()
         self._build_menu_bar()
@@ -75,6 +81,7 @@ class MainWindow(
         self._clipboard.dataChanged.connect(self._update_clipboard_buttons)
         self._update_selection_metrics()
         self._update_clipboard_buttons()
+        self._apply_backup_setting()
 
     def _build_ui(self) -> None:
         central_widget = QWidget()
@@ -143,6 +150,20 @@ class MainWindow(
         self.paste_action.setEnabled(False)
         self.paste_action.triggered.connect(self.paste_coordinates_from_clipboard)
         edit_menu.addAction(self.paste_action)
+
+        edit_menu.addSeparator()
+
+        self.keep_backups_action = QAction("Keep Backup Copies of Originals", self)
+        self.keep_backups_action.setCheckable(True)
+        self.keep_backups_action.setToolTip(
+            "Before a photo is first changed, save an untouched copy next to it "
+            'with "_original" added to the file name.'
+        )
+        self.keep_backups_action.setChecked(
+            self.settings.value(KEEP_BACKUPS_SETTING, False, type=bool)
+        )
+        self.keep_backups_action.toggled.connect(self.set_keep_backups)
+        edit_menu.addAction(self.keep_backups_action)
 
         help_menu = self.menuBar().addMenu("&Help")
 
@@ -215,58 +236,97 @@ class MainWindow(
         before_states: dict[Path, tuple[float | None, float | None]],
         after_states: dict[Path, tuple[float | None, float | None]],
     ) -> None:
-        self._undo_gps_states = before_states
-        self._redo_gps_states = after_states
+        self.gps_history.record(before=before_states, after=after_states)
         self._update_undo_redo_actions()
 
     def _clear_gps_edit_history(self) -> None:
-        self._undo_gps_states = {}
-        self._redo_gps_states = {}
+        self.gps_history.clear()
         self._update_undo_redo_actions()
 
     def _update_undo_redo_actions(self) -> None:
         if hasattr(self, "undo_action"):
-            self.undo_action.setEnabled(bool(self._undo_gps_states))
+            self.undo_action.setEnabled(self.gps_history.can_undo)
         if hasattr(self, "redo_action"):
-            self.redo_action.setEnabled(
-                bool(self._redo_gps_states) and not bool(self._undo_gps_states)
-            )
+            self.redo_action.setEnabled(self.gps_history.can_redo)
 
     def undo_gps_edit(self) -> None:
-        if not self._undo_gps_states:
+        states = self.gps_history.undo_states()
+        if not states:
             return
 
-        undo_states = dict(self._undo_gps_states)
-        redo_states = dict(self._redo_gps_states)
-        self._restore_gps_states(undo_states)
-        self._undo_gps_states = {}
-        self._redo_gps_states = redo_states
+        failed_paths = self._restore_gps_states(states)
+        self.gps_history.mark_undone()
         self._update_undo_redo_actions()
+        self._report_write_failures("undo the GPS change for", failed_paths)
         self._set_status_message("GPS change undone.", "info")
 
     def redo_gps_edit(self) -> None:
-        if not self._redo_gps_states or self._undo_gps_states:
+        states = self.gps_history.redo_states()
+        if not states:
             return
 
-        redo_states = dict(self._redo_gps_states)
-        undo_states = self._gps_states_for_paths(list(redo_states))
-        self._restore_gps_states(redo_states)
-        self._undo_gps_states = undo_states
-        self._redo_gps_states = redo_states
+        failed_paths = self._restore_gps_states(states)
+        self.gps_history.mark_redone()
         self._update_undo_redo_actions()
+        self._report_write_failures("redo the GPS change for", failed_paths)
         self._set_status_message("GPS change redone.", "info")
 
     def _restore_gps_states(
         self,
         states: dict[Path, tuple[float | None, float | None]],
-    ) -> None:
-        self.session = self.workflow.restore_gps_states_workflow(
+    ) -> list[str]:
+        """
+        Write remembered GPS states back to files. Returns failure messages.
+        """
+        result = self.workflow.restore_gps_states_workflow(
             session=self.session,
             states=states,
         )
+        self.session = result.session
         self._render_current_photo_session()
         self.list_widget.clearSelection()
         self.update_details_panel()
+        return list(result.execution_result.failed_paths)
+
+    def _report_write_failures(self, action: str, failed_paths: list[str]) -> None:
+        """
+        Tell the user which files could not be changed, if any.
+
+        Args:
+            action:
+                Completes the sentence "Could not <action> N photo(s).",
+                for example "apply GPS to".
+            failed_paths:
+                One "file name: reason" entry per failed file.
+        """
+        if not failed_paths:
+            return
+
+        self._set_status_message(
+            f"Could not {action} {len(failed_paths)} photo(s).",
+            "error",
+        )
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle("Some Photos Were Not Changed")
+        dialog.setText(f"Could not {action} {len(failed_paths)} photo(s).")
+        dialog.setInformativeText(
+            "The other photos were changed. Show Details lists each file and the reason."
+        )
+        dialog.setDetailedText("\n".join(failed_paths))
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec()
+
+    def set_keep_backups(self, keep_backups: bool) -> None:
+        """
+        Turn backup copies on or off, and remember the choice.
+        """
+        self.settings.setValue(KEEP_BACKUPS_SETTING, keep_backups)
+        self._apply_backup_setting()
+
+    def _apply_backup_setting(self) -> None:
+        # The writer is ExifToolWrapper in the app; test fakes simply ignore it.
+        self.workflow.writer.keep_backups = self.keep_backups_action.isChecked()
 
     def _default_photo_directory(self) -> Path:
         pictures_dir = Path.home() / "Pictures"

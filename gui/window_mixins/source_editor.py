@@ -258,18 +258,28 @@ class SourceEditorMixin:
             return
 
         before_states = self._gps_states_for_paths(paths_with_gps)
-        for path in paths_with_gps:
-            self.exiftool.clear_gps(path)
-
-        self._remember_gps_edit(
-            before_states=before_states,
-            after_states={path: (None, None) for path in paths_with_gps},
+        # The backend attempts every file and reports failures instead of
+        # stopping at the first one.
+        clear_result = self.workflow.clear_gps_workflow(
+            session=self.session,
+            target_paths=paths_with_gps,
         )
+        self.session = clear_result.session
+        result = clear_result.execution_result
+
+        if result.successful_paths:
+            self._remember_gps_edit(
+                before_states=before_states,
+                after_states={path: (None, None) for path in result.successful_paths},
+            )
+        else:
+            self._clear_gps_edit_history()
+
         self._clear_target_list()
-        self.session = self.workflow.refresh_photo_workflow(self.session)
         self._render_current_photo_session()
         self.list_widget.clearSelection()
         self.update_details_panel()
+        self._report_write_failures("clear GPS from", list(result.failed_paths))
 
     def _clear_target_list(self) -> None:
         self.session.target_paths = []

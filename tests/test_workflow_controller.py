@@ -5,6 +5,7 @@ from pathlib import Path
 from core.models import GpsCoordinates, PhotoInfo
 from services.models import ApplyPreparation, WorkflowSession
 from services.workflow_controller import (
+    clear_gps_workflow,
     clear_source_workflow,
     execute_apply_workflow,
     load_source_workflow,
@@ -38,6 +39,8 @@ class StubWriter:
 
     def clear_gps(self, path: Path) -> None:
         self.clear_calls.append(path)
+        if path in self.failing_paths:
+            raise RuntimeError("boom")
 
 
 class WorkflowControllerTests(unittest.TestCase):
@@ -200,8 +203,55 @@ class WorkflowControllerTests(unittest.TestCase):
 
         self.assertEqual(writer.calls, [(write_path, 40.5, -111.8)])
         self.assertEqual(writer.clear_calls, [clear_path])
-        self.assertEqual(refreshed.selected_paths, [write_path, clear_path])
+        self.assertEqual(refreshed.session.selected_paths, [write_path, clear_path])
+        self.assertEqual(refreshed.execution_result.successful_paths, [write_path, clear_path])
         self.assertEqual(loader.calls, [write_path, clear_path])
+
+    def test_restore_gps_states_workflow_continues_after_a_failure(self) -> None:
+        first = Path("/tmp/first.jpg")
+        failing = Path("/tmp/failing.jpg")
+        last = Path("/tmp/last.jpg")
+        loader = StubLoader(
+            {path: PhotoInfo(path=path, file_type="JPG") for path in (first, failing, last)}
+        )
+        writer = StubWriter(failing_paths={failing})
+
+        result = restore_gps_states_workflow(
+            session=WorkflowSession(selected_paths=[first, failing, last]),
+            states={first: (1.0, 2.0), failing: (None, None), last: (3.0, 4.0)},
+            writer=writer,
+            loader=loader,
+        )
+
+        self.assertEqual(result.execution_result.successful_paths, [first, last])
+        self.assertEqual(result.execution_result.failed_paths, ["failing.jpg: boom"])
+        self.assertEqual(writer.calls, [(first, 1.0, 2.0), (last, 3.0, 4.0)])
+
+    def test_clear_gps_workflow_clears_every_file_and_reports_failures(self) -> None:
+        first = Path("/tmp/first.jpg")
+        failing = Path("/tmp/failing.jpg")
+        last = Path("/tmp/last.jpg")
+        loader = StubLoader(
+            {path: PhotoInfo(path=path, file_type="JPG") for path in (first, failing, last)}
+        )
+        writer = StubWriter(failing_paths={failing})
+        session = WorkflowSession(
+            selected_paths=[first, failing, last],
+            target_paths=[first, failing, last],
+        )
+
+        result = clear_gps_workflow(
+            session=session,
+            target_paths=[first, failing, last],
+            writer=writer,
+            loader=loader,
+        )
+
+        self.assertEqual(writer.clear_calls, [first, failing, last])
+        self.assertEqual(result.execution_result.successful_paths, [first, last])
+        self.assertEqual(result.execution_result.failed_paths, ["failing.jpg: boom"])
+        self.assertEqual(result.session.target_paths, [first, failing, last])
+        self.assertEqual(loader.calls, [first, failing, last])
 
 
 class PhotoWorkflowFacadeTests(unittest.TestCase):
@@ -297,7 +347,21 @@ class PhotoWorkflowFacadeTests(unittest.TestCase):
         )
 
         self.assertEqual(writer.calls, [(target_photo, 40.5, -111.8)])
-        self.assertIn(target_photo, refreshed.loaded_photo_infos)
+        self.assertIn(target_photo, refreshed.session.loaded_photo_infos)
+
+    def test_facade_clear_gps_uses_configured_writer_and_loader(self) -> None:
+        target_photo = Path("/tmp/target-photo.jpg")
+        loader = StubLoader({target_photo: PhotoInfo(path=target_photo, file_type="JPG")})
+        writer = StubWriter()
+        facade = PhotoWorkflowFacade(loader=loader, writer=writer)
+
+        result = facade.clear_gps_workflow(
+            session=WorkflowSession(selected_paths=[target_photo]),
+            target_paths=[target_photo],
+        )
+
+        self.assertEqual(writer.clear_calls, [target_photo])
+        self.assertEqual(result.execution_result.successful_paths, [target_photo])
 
 
 if __name__ == "__main__":

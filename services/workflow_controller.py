@@ -6,7 +6,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.gps_workflow_service import apply_gps_to_paths, prepare_apply_gps
+from services.gps_workflow_service import (
+    apply_gps_to_paths,
+    clear_gps_from_paths,
+    prepare_apply_gps,
+    restore_gps_states,
+)
 from services.models import (
     ApplyPreparation,
     ApplyWorkflowResult,
@@ -135,6 +140,25 @@ def execute_apply_workflow(
     )
 
 
+def clear_gps_workflow(
+    *,
+    session: WorkflowSession,
+    target_paths: list[Path],
+    writer,
+    loader,
+    cache=None,
+) -> ApplyWorkflowResult:
+    """
+    Clear GPS from the target files and refresh selected-photo state afterward.
+    """
+    execution_result = clear_gps_from_paths(target_paths, writer=writer)
+    refreshed_session = refresh_photo_workflow(session, loader, cache)
+    return ApplyWorkflowResult(
+        session=refreshed_session,
+        execution_result=execution_result,
+    )
+
+
 def restore_gps_states_workflow(
     *,
     session: WorkflowSession,
@@ -142,14 +166,15 @@ def restore_gps_states_workflow(
     writer,
     loader,
     cache=None,
-) -> WorkflowSession:
+) -> ApplyWorkflowResult:
     """
     Restore GPS metadata states and refresh selected-photo workflow state.
-    """
-    for path, (latitude, longitude) in states.items():
-        if latitude is None or longitude is None:
-            writer.clear_gps(path)
-        else:
-            writer.write_gps(path, latitude, longitude)
 
-    return refresh_photo_workflow(session, loader, cache)
+    Every file is attempted even if some fail; failures are in the result.
+    """
+    execution_result = restore_gps_states(states, writer=writer)
+    refreshed_session = refresh_photo_workflow(session, loader, cache)
+    return ApplyWorkflowResult(
+        session=refreshed_session,
+        execution_result=execution_result,
+    )

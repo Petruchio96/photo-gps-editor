@@ -58,20 +58,56 @@ def apply_gps_to_paths(
     """
     Write GPS metadata to each target path and collect failures.
     """
-    success_count = 0
+    return _write_each(
+        target_paths,
+        lambda path: writer.write_gps(path, latitude, longitude),
+    )
+
+
+def clear_gps_from_paths(target_paths: list[Path], *, writer) -> ApplyExecutionResult:
+    """
+    Remove GPS metadata from each target path and collect failures.
+    """
+    return _write_each(target_paths, writer.clear_gps)
+
+
+def restore_gps_states(
+    states: Mapping[Path, tuple[float | None, float | None]],
+    *,
+    writer,
+) -> ApplyExecutionResult:
+    """
+    Write each file back to a remembered GPS state (used by undo and redo).
+
+    (None, None) means the file had no GPS, so its GPS is cleared.
+    """
+    def restore(path: Path) -> None:
+        latitude, longitude = states[path]
+        if latitude is None or longitude is None:
+            writer.clear_gps(path)
+        else:
+            writer.write_gps(path, latitude, longitude)
+
+    return _write_each(list(states), restore)
+
+
+def _write_each(paths: list[Path], write) -> ApplyExecutionResult:
+    """
+    Run one write per file. A failure on one file never stops the others;
+    every failure is reported in the result.
+    """
     successful_paths: list[Path] = []
     failed_paths: list[str] = []
 
-    for path in target_paths:
+    for path in paths:
         try:
-            writer.write_gps(path, latitude, longitude)
-            success_count += 1
+            write(path)
             successful_paths.append(path)
         except Exception as exc:
             failed_paths.append(f"{path.name}: {exc}")
 
     return ApplyExecutionResult(
-        success_count=success_count,
+        success_count=len(successful_paths),
         successful_paths=successful_paths,
         failed_paths=failed_paths,
     )

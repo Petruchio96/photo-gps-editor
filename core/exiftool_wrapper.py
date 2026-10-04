@@ -58,6 +58,11 @@ class ExifToolWrapper:
         """
         self.executable = executable or default_exiftool_executable()
 
+        # When True, ExifTool keeps an untouched copy of each file as
+        # "<name>_original" the first time it changes the file. Later changes
+        # leave that copy alone, so it always holds the original.
+        self.keep_backups = False
+
         # The long-running ExifTool process is started on first use.
         self._process: subprocess.Popen | None = None
         self._stdout_lines: queue.Queue[str | None] = queue.Queue()
@@ -182,7 +187,7 @@ class ExifToolWrapper:
 
         self._run(
             [
-                "-overwrite_original",
+                *self._overwrite_options(),
                 f"-GPSLatitude={abs(latitude)}",
                 f"-GPSLatitudeRef={latitude_ref}",
                 f"-GPSLongitude={abs(longitude)}",
@@ -198,7 +203,7 @@ class ExifToolWrapper:
         """
         self._run(
             [
-                "-overwrite_original",
+                *self._overwrite_options(),
                 "-GPSLatitude=",
                 "-GPSLatitudeRef=",
                 "-GPSLongitude=",
@@ -207,6 +212,12 @@ class ExifToolWrapper:
             [path],
             "Failed to clear metadata.",
         )
+
+    def _overwrite_options(self) -> list[str]:
+        """
+        Options that decide whether ExifTool keeps a backup of the original file.
+        """
+        return [] if self.keep_backups else ["-overwrite_original"]
 
     def close(self) -> None:
         """

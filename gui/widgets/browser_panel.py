@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.widgets.loading_indicator import LoadingIndicator
+from gui.widgets.thumbnail_delegate import ThumbnailDelegate
+
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
 
@@ -80,6 +83,9 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
     window.list_widget.customContextMenuRequested.connect(window.show_context_menu)
     window.list_widget.verticalScrollBar().setSingleStep(24)
+    # Draws shimmering placeholders for thumbnails that are still loading.
+    window.thumbnail_delegate = ThumbnailDelegate(window.list_widget)
+    window.list_widget.setItemDelegate(window.thumbnail_delegate)
 
     window.select_all_button = QPushButton("Select All")
     window.select_all_button.clicked.connect(window.select_all_photos)
@@ -104,11 +110,15 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.browser_hint.setObjectName("browserHint")
     window.browser_hint.setWordWrap(True)
 
+    # The loading progress row takes the hint's place while photos load.
+    window.loading_indicator = LoadingIndicator(window.browser_hint)
+    window.loading_indicator.cancel_requested.connect(window.cancel_loading)
+
     layout.addWidget(section_heading)
     layout.addWidget(section_note)
     layout.addLayout(header_row)
     layout.addLayout(selection_button_row)
     layout.addWidget(window.list_widget, 1)
-    layout.addWidget(window.browser_hint)
+    layout.addWidget(window.loading_indicator)
 
     return panel

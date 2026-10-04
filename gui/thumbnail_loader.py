@@ -76,9 +76,6 @@ class ThumbnailLoader:
         self.thumbnail_size = thumbnail_size
         self.preview_reader = preview_reader
         self._icon_cache: dict[tuple[str, int | None, bool], QIcon] = {}
-        # RAW thumbnails read ahead of time by prefetch(), keyed like the icon
-        # cache but without the GPS flag. None means "no preview available".
-        self._raw_pixmaps: dict[tuple[str, int | None], QPixmap | None] = {}
 
         # Store the path to the overlay icon used for photos that already have
         # GPS metadata. Keeping this as a project asset makes the badge more
@@ -92,14 +89,14 @@ class ThumbnailLoader:
 
     def load_icon(self, path: Path, has_gps: bool = False) -> QIcon:
         """
-        Return a QIcon for the given file.
+        Return a QIcon for the given file, building it right away if needed.
 
-        If the file is a JPG or JPEG, we try to generate a real thumbnail.
-        If that fails, or if the file type is something else like CR2/CR3/DNG,
-        we return a fallback icon.
+        JPEGs and RAW files get a real thumbnail; anything else, or a file
+        that cannot be read, gets a fallback icon. Files with GPS metadata get
+        a small badge in the top-right corner.
 
-        If the file has GPS metadata, we overlay a small badge in the top-right
-        corner so the user can identify geotagged photos at a glance.
+        This reads the file on the calling thread. For many files, use
+        load_images() on a background thread and icon_from_image() instead.
 
         Args:
             path:
@@ -110,73 +107,77 @@ class ThumbnailLoader:
         Returns:
             A QIcon that can be shown in a QListWidget or similar Qt widget.
         """
-        cache_key = self._build_cache_key(path, has_gps)
-        cached_icon = self._icon_cache.get(cache_key)
-
+        cached_icon = self.cached_icon(path, has_gps)
         if cached_icon is not None:
             return cached_icon
 
-        real_pixmap = None
-        if path.suffix.lower() in JPEG_EXTENSIONS:
-            real_pixmap = self._load_jpeg_thumbnail(path)
-        elif is_raw_file(path):
-            real_pixmap = self._load_raw_thumbnail(path)
+        image = self.load_images([path]).get(path)
+        return self.icon_from_image(path, has_gps, image)
 
-        if real_pixmap is not None:
-            icon = self._build_badged_icon(QIcon(real_pixmap)) if has_gps else QIcon(real_pixmap)
-            self._cache_icon(cache_key, icon)
-            return icon
-
-        fallback_icon = self._gps_fallback_icon if has_gps else self._fallback_icon
-        self._cache_icon(cache_key, fallback_icon)
-        return fallback_icon
-
-    def prefetch(self, paths: list[Path]) -> None:
+    def cached_icon(self, path: Path, has_gps: bool = False) -> QIcon | None:
         """
-        Read RAW thumbnails for many files at once, before load_icon() is called.
-
-        One ExifTool command for the whole batch is about twice as fast as one
-        per file. JPEGs and files already cached are skipped.
+        Return the icon if it was already built for this version of the file.
         """
-        if self.preview_reader is None:
-            return
+        return self._icon_cache.get(self._build_cache_key(path, has_gps))
 
-        needed: dict[Path, tuple[str, int | None]] = {}
+    def load_images(self, paths: list[Path]) -> dict[Path, QImage | None]:
+        """
+        Read thumbnail-sized images for many files.
+
+        Safe to call on a background thread: it only uses QImage, never
+        QPixmap or widgets, and does not touch the icon cache. RAW previews
+        for the whole list are read in one batch.
+
+        Returns:
+            {path: image} for every path; None where no image could be made.
+        """
+        raw_paths = [path for path in paths if is_raw_file(path)]
+        previews: dict[Path, EmbeddedPreview] = {}
+        if raw_paths and self.preview_reader is not None:
+            try:
+                previews = self.preview_reader(raw_paths)
+            except Exception:
+                # Thumbnails are a convenience; fall back to icons on any failure.
+                previews = {}
+
+        images: dict[Path, QImage | None] = {}
         for path in paths:
-            if not is_raw_file(path):
-                continue
-            key = self._build_raw_key(path)
-            if key not in self._raw_pixmaps:
-                needed[path] = key
+            if path.suffix.lower() in JPEG_EXTENSIONS:
+                images[path] = self._read_jpeg_image(path)
+            elif path in previews:
+                images[path] = self._preview_to_image(previews[path])
+            else:
+                images[path] = None
+        return images
 
-        if not needed:
-            return
-
-        try:
-            previews = self.preview_reader(list(needed))
-        except Exception:
-            # Thumbnails are a convenience; fall back to icons on any failure.
-            previews = {}
-
-        if len(self._raw_pixmaps) + len(needed) > self.MAX_CACHE_ENTRIES:
-            self._raw_pixmaps.clear()
-
-        for path, key in needed.items():
-            preview = previews.get(path)
-            self._raw_pixmaps[key] = (
-                self._preview_to_pixmap(preview) if preview is not None else None
-            )
-
-    def _load_raw_thumbnail(self, path: Path) -> QPixmap | None:
+    def icon_from_image(self, path: Path, has_gps: bool, image: QImage | None) -> QIcon:
         """
-        Build a thumbnail from the JPEG preview embedded in a RAW file.
-        """
-        key = self._build_raw_key(path)
-        if key not in self._raw_pixmaps:
-            self.prefetch([path])
-        return self._raw_pixmaps.get(key)
+        Turn an image from load_images() into a cached icon. GUI thread only.
 
-    def _preview_to_pixmap(self, preview: EmbeddedPreview) -> QPixmap | None:
+        A missing image gives the fallback icon.
+        """
+        cache_key = self._build_cache_key(path, has_gps)
+
+        if image is None or image.isNull():
+            icon = self._gps_fallback_icon if has_gps else self._fallback_icon
+        else:
+            pixmap = QPixmap.fromImage(image)
+            if pixmap.isNull():
+                icon = self._gps_fallback_icon if has_gps else self._fallback_icon
+            else:
+                icon = self._build_badged_icon(QIcon(pixmap)) if has_gps else QIcon(pixmap)
+
+        self._cache_icon(cache_key, icon)
+        return icon
+
+    def fallback_icon_for(self, has_gps: bool) -> QIcon:
+        """
+        The plain icon used when no thumbnail is available. Not cached per
+        file, so a later load tries the real thumbnail again.
+        """
+        return self._gps_fallback_icon if has_gps else self._fallback_icon
+
+    def _preview_to_image(self, preview: EmbeddedPreview) -> QImage | None:
         """
         Decode an embedded preview at thumbnail size, trim any padding, and
         rotate it upright.
@@ -204,16 +205,7 @@ class ThumbnailLoader:
 
         if preview.image_width and preview.image_height:
             image = _crop_to_aspect(image, preview.image_width, preview.image_height)
-        image = _apply_exif_orientation(image, preview.orientation)
-        pixmap = QPixmap.fromImage(image)
-        return None if pixmap.isNull() else pixmap
-
-    def _build_raw_key(self, path: Path) -> tuple[str, int | None]:
-        try:
-            modified_at = path.stat().st_mtime_ns
-        except OSError:
-            modified_at = None
-        return (str(path), modified_at)
+        return _apply_exif_orientation(image, preview.orientation)
 
     def _cache_icon(self, cache_key: tuple[str, int | None, bool], icon: QIcon) -> None:
         """
@@ -234,16 +226,16 @@ class ThumbnailLoader:
 
         return (str(path), modified_at, has_gps)
 
-    def _load_jpeg_thumbnail(self, path: Path) -> QPixmap | None:
+    def _read_jpeg_image(self, path: Path) -> QImage | None:
         """
-        Try to open a JPEG file and convert it into a thumbnail pixmap.
+        Read a JPEG at thumbnail size, rotated upright using its own EXIF tag.
 
         Args:
             path:
                 Path to a JPG/JPEG image.
 
         Returns:
-            A QPixmap if thumbnail generation succeeds, otherwise None.
+            A QImage if reading succeeds, otherwise None.
         """
         reader = QImageReader(str(path))
         reader.setAutoTransform(True)
@@ -259,11 +251,7 @@ class ThumbnailLoader:
             reader.setScaledSize(scaled_size)
 
         image = reader.read()
-        if image.isNull():
-            return None
-
-        pixmap = QPixmap.fromImage(image)
-        return None if pixmap.isNull() else pixmap
+        return None if image.isNull() else image
 
     def _rgb_bytes_to_png_bytes(self, image: Image.Image) -> bytes:
         """

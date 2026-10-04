@@ -94,7 +94,7 @@ class RawThumbnailTests(unittest.TestCase):
         self.assertLess(pixmap.width(), pixmap.height())
         self.assertEqual(reader_calls, [[raw]])
 
-    def test_prefetch_reads_all_raw_files_in_one_call_and_caches(self) -> None:
+    def test_load_images_reads_all_raw_files_in_one_call(self) -> None:
         first = self._raw_file("first.dng")
         second = self._raw_file("second.cr3")
         jpeg = self.folder / "photo.jpg"
@@ -106,12 +106,44 @@ class RawThumbnailTests(unittest.TestCase):
             return {path: EmbeddedPreview(_jpeg_bytes(40, 30), 1) for path in paths}
 
         loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
-        loader.prefetch([first, jpeg, second])
-        loader.load_icon(first)
-        loader.load_icon(second)
-        loader.prefetch([first, second])
+        images = loader.load_images([first, jpeg, second])
 
         self.assertEqual(reader_calls, [[first, second]])
+        self.assertEqual(set(images), {first, jpeg, second})
+        self.assertTrue(all(image is not None and not image.isNull() for image in images.values()))
+
+    def test_icons_are_cached_after_icon_from_image(self) -> None:
+        raw = self._raw_file("cached.cr3")
+        reader_calls = []
+
+        def reader(paths):
+            reader_calls.append(list(paths))
+            return {path: EmbeddedPreview(_jpeg_bytes(40, 30), 1) for path in paths}
+
+        loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
+        self.assertIsNone(loader.cached_icon(raw))
+
+        image = loader.load_images([raw])[raw]
+        icon = loader.icon_from_image(raw, False, image)
+
+        self.assertIs(loader.cached_icon(raw), icon)
+        self.assertIs(loader.load_icon(raw), icon)
+        self.assertEqual(len(reader_calls), 1)
+
+    def test_load_images_is_safe_on_a_background_thread(self) -> None:
+        import threading
+
+        jpeg = self.folder / "threaded.jpg"
+        Image.new("RGB", (80, 60), color="purple").save(jpeg)
+        loader = ThumbnailLoader(thumbnail_size=64)
+        results = {}
+
+        thread = threading.Thread(target=lambda: results.update(loader.load_images([jpeg])))
+        thread.start()
+        thread.join(timeout=10)
+
+        self.assertFalse(results[jpeg].isNull())
+        self.assertFalse(loader.icon_from_image(jpeg, True, results[jpeg]).isNull())
 
     def test_padded_preview_is_cropped_to_photo_shape(self) -> None:
         raw = self._raw_file("padded.cr3")

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QElapsedTimer, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,12 +23,13 @@ from PySide6.QtWidgets import (
 
 from core.file_types import file_dialog_patterns
 from core.runtime_paths import resource_path
+from gui.background import BackgroundRunner
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
 from gui.widgets.editor_panel import build_editor_panel
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
-from gui.window_mixins.photo_list import PhotoListMixin
+from gui.window_mixins.photo_list import THUMBNAIL_BATCH_SIZE, PhotoListMixin
 from gui.window_mixins.source_editor import SourceEditorMixin
 from services.gps_edit_history import GpsEditHistory
 from services.models import OverwriteEntry, WorkflowSession
@@ -78,8 +79,22 @@ class MainWindow(
         self._last_status_tone = "info"
         self.gps_history = GpsEditHistory()
 
+        # Background loading state (see PhotoListMixin.load_photos and
+        # _start_thumbnail_job). Generation numbers let late results from a
+        # cancelled or replaced load be recognized and ignored.
+        self.background = BackgroundRunner()
+        self.thumbnail_batch_size = THUMBNAIL_BATCH_SIZE
+        self._gps_load_generation = 0
+        self._gps_load_token = None
+        self._thumbnail_generation = 0
+        self._thumbnail_token = None
+        self._thumbnail_total = 0
+        self._pending_thumbnail_items = {}
+        self._blank_icon = None
+
         self._build_ui()
         self._build_menu_bar()
+        self._build_loading_timers()
         self._apply_window_style()
         self._clipboard = self.clipboard()
         self._clipboard.dataChanged.connect(self._update_clipboard_buttons)
@@ -174,6 +189,29 @@ class MainWindow(
         self.about_action = QAction("About", self)
         self.about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(self.about_action)
+
+    def _build_loading_timers(self) -> None:
+        # Shows placeholder tiles if thumbnails are not ready quickly.
+        self._placeholder_timer = QTimer(self)
+        self._placeholder_timer.setSingleShot(True)
+        self._placeholder_timer.timeout.connect(self._show_thumbnail_placeholders)
+
+        # Drives the shimmer animation while placeholders are shown.
+        self._shimmer_timer = QTimer(self)
+        self._shimmer_timer.timeout.connect(self._advance_shimmer)
+        self._shimmer_clock = QElapsedTimer()
+
+    def closeEvent(self, event) -> None:
+        self.stop_background_work()
+        super().closeEvent(event)
+
+    def stop_background_work(self) -> None:
+        """
+        Stop background loading and wait for the batch in progress, so no
+        background work is still using Qt when the app shuts down.
+        """
+        self.cancel_loading(update_indicator=False)
+        self.background.shutdown()
 
     def _apply_window_style(self) -> None:
         self.setStyleSheet(APP_STYLESHEET)

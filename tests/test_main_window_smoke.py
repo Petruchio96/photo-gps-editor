@@ -57,8 +57,17 @@ class FakePhotoLoader:
 
 
 class FakeThumbnailLoader:
-    def prefetch(self, paths: list[Path]) -> None:
-        pass
+    def cached_icon(self, path: Path, has_gps: bool = False):
+        return None
+
+    def load_images(self, paths: list[Path]) -> dict:
+        return {path: None for path in paths}
+
+    def icon_from_image(self, path: Path, has_gps: bool, image) -> QIcon:
+        return self.load_icon(path, has_gps)
+
+    def fallback_icon_for(self, has_gps: bool) -> QIcon:
+        return self.load_icon(Path("fallback"), has_gps)
 
     def load_icon(self, path: Path, has_gps: bool = False) -> QIcon:
         pixmap = QPixmap(32, 32)
@@ -80,6 +89,9 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.settings = QSettings(str(self.settings_path), QSettings.IniFormat)
 
         self.window = MainWindow(settings=self.settings)
+        # Run background loading immediately, so these tests can check results
+        # right after each action. Background behavior is tested separately.
+        self.window.background.run_inline = True
         self.window.show()
 
         self.source_path = Path("/tmp/source.jpg")

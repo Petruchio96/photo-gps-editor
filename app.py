@@ -42,6 +42,9 @@ def main() -> int:
 
     window = MainWindow()
     window.show()
+    # Backstop for quits that skip the window's close (e.g. system logout):
+    # background work must stop before Qt shuts down.
+    app.aboutToQuit.connect(window.stop_background_work)
 
     return app.exec()
 

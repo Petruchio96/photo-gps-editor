@@ -2,9 +2,15 @@
 
 from pathlib import Path
 import sys
+import tomllib
 
 
 project_root = Path(SPECPATH)
+app_icon = str(project_root / "assets" / "app_icon_128.png")
+
+# pyproject.toml is the single source of truth for the app version.
+with open(project_root / "pyproject.toml", "rb") as pyproject_file:
+    app_version = tomllib.load(pyproject_file)["project"]["version"]
 
 
 def existing_datas():
@@ -33,6 +39,15 @@ def existing_datas():
     windows_exiftool_files = project_root / "tools" / "windows" / "exiftool_files"
     if windows_exiftool_files.exists():
         datas.append((str(windows_exiftool_files), "tools/windows/exiftool_files"))
+
+    # macOS uses ExifTool's platform-independent Perl distribution: the
+    # exiftool script plus its lib folder, run by the system Perl.
+    macos_exiftool = project_root / "tools" / "macos" / "exiftool"
+    macos_exiftool_lib = project_root / "tools" / "macos" / "lib"
+    if macos_exiftool.exists():
+        datas.append((str(macos_exiftool), "tools/macos"))
+    if macos_exiftool_lib.exists():
+        datas.append((str(macos_exiftool_lib), "tools/macos/lib"))
 
     return datas
 
@@ -68,6 +83,9 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # PyInstaller converts the PNG to .ico / .icns with Pillow on Windows and
+    # macOS; Linux ignores it (the AppImage sets its own icon).
+    icon=app_icon,
 )
 coll = COLLECT(
     exe,
@@ -78,3 +96,17 @@ coll = COLLECT(
     upx_exclude=[],
     name="Photo GPS Editor",
 )
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="Photo GPS Editor.app",
+        icon=app_icon,
+        bundle_identifier="io.github.petruchio96.photogpseditor",
+        version=app_version,
+        info_plist={
+            "CFBundleDisplayName": "Photo GPS Editor",
+            "CFBundleShortVersionString": app_version,
+            "NSHighResolutionCapable": True,
+        },
+    )

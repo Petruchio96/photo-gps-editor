@@ -26,7 +26,7 @@ class ExifToolWrapperTests(unittest.TestCase):
             self.assertFalse(wrapper.is_available())
 
     def test_read_gps_returns_coordinates(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
         payload = json.dumps([{"GPSLatitude": 40.5, "GPSLongitude": -111.8}])
 
         with patch(
@@ -51,10 +51,13 @@ class ExifToolWrapperTests(unittest.TestCase):
                 "-",
             ],
         )
-        self.assertEqual(run_mock.call_args.kwargs["input"], "/tmp/photo.jpg\n")
+        self.assertEqual(
+            run_mock.call_args.kwargs["input"],
+            f"{Path('/tmp/photo.jpg')}\n",
+        )
 
     def test_read_gps_returns_none_values_for_empty_payload(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -65,7 +68,7 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertEqual(result, {"latitude": None, "longitude": None})
 
     def test_read_gps_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -75,7 +78,7 @@ class ExifToolWrapperTests(unittest.TestCase):
                 wrapper.read_gps(Path("/tmp/photo.jpg"))
 
     def test_read_gps_many_returns_coordinates_by_path(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
         first = Path("/tmp/first.jpg")
         second = Path("/tmp/second.jpg")
         payload = json.dumps(
@@ -115,7 +118,7 @@ class ExifToolWrapperTests(unittest.TestCase):
         )
 
     def test_read_gps_many_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -125,7 +128,7 @@ class ExifToolWrapperTests(unittest.TestCase):
                 wrapper.read_gps_many([Path("/tmp/photo.jpg")])
 
     def test_write_gps_builds_expected_command_for_negative_values(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -140,7 +143,7 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-GPSLongitudeRef=W", command)
 
     def test_clear_gps_blanks_gps_tags(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -152,10 +155,13 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-overwrite_original", command)
         self.assertIn("-GPSLatitude=", command)
         self.assertIn("-GPSLongitudeRef=", command)
-        self.assertEqual(run_mock.call_args.kwargs["input"], "/tmp/photo.jpg\n")
+        self.assertEqual(
+            run_mock.call_args.kwargs["input"],
+            f"{Path('/tmp/photo.jpg')}\n",
+        )
 
     def test_runs_use_utf8_and_hidden_console_window(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",
@@ -171,7 +177,7 @@ class ExifToolWrapperTests(unittest.TestCase):
         )
 
     def test_write_gps_raises_runtime_error_on_failure(self) -> None:
-        wrapper = ExifToolWrapper()
+        wrapper = ExifToolWrapper("exiftool")
 
         with patch(
             "core.exiftool_wrapper.subprocess.run",

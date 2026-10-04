@@ -61,6 +61,15 @@ py -3.12 -m venv .venv
 
 ## 4. Add Windows ExifTool
 
+The quickest way is the download script, which fetches a pinned ExifTool
+version and verifies its checksum:
+
+```powershell
+.\.venv\Scripts\python packaging\fetch_exiftool.py windows
+```
+
+To do it by hand instead:
+
 Download the Windows ExifTool zip (64-bit) from:
 
 ```text

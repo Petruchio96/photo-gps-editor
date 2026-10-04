@@ -4,6 +4,20 @@ The first release packaging target is a PyInstaller one-folder build. This is
 easier to debug than a single-file executable and is the safest starting point
 for a PySide6 desktop app.
 
+## Automated Builds (GitHub Actions)
+
+`.github/workflows/build.yml` builds all three platforms on GitHub's servers:
+
+- Every push to any branch runs the tests on Linux, Windows, and macOS and
+  builds each app. Open the run on the repository's Actions tab and download
+  the builds from its Artifacts section.
+- Pushing a `v*` tag also attaches the builds to that tag's GitHub release,
+  creating a draft release if one does not exist.
+
+PyInstaller cannot cross-compile, so this is the easiest way to get Windows and
+macOS builds without owning those machines. The manual steps below are still
+useful for local testing.
+
 ## Linux
 
 Build from the repository root:
@@ -40,9 +54,9 @@ Build on Windows rather than cross-compiling from Linux.
 1. Install Python 3.12.
 2. Create and activate a virtual environment.
 3. Install runtime dependencies and PyInstaller.
-4. Put the Windows ExifTool executable at `tools/windows/exiftool.exe` and its
-   `exiftool_files` folder at `tools/windows/exiftool_files/`. See
-   `tools/windows/README.md`.
+4. Download ExifTool into `tools/windows/` (checksum-verified):
+   `python packaging/fetch_exiftool.py windows`. See `tools/windows/README.md`
+   to do this by hand instead.
 5. Run:
 
 ```powershell
@@ -51,6 +65,25 @@ python -m PyInstaller photo_gps_editor.spec --noconfirm
 
 The Windows output will be a one-folder app containing `Photo GPS Editor.exe`.
 Zip that folder for the first Windows release.
+
+## macOS
+
+Build on a Mac (Apple Silicon builds run on Apple Silicon Macs only).
+
+1. Install Python 3.12 and create a virtual environment.
+2. Install runtime dependencies and PyInstaller.
+3. Download ExifTool into `tools/macos/`: `python packaging/fetch_exiftool.py macos`.
+   The app runs it with the Perl that ships with macOS.
+4. Run:
+
+```bash
+python -m PyInstaller photo_gps_editor.spec --noconfirm
+ditto -c -k --keepParent "dist/Photo GPS Editor.app" dist/photo-gps-editor-macos-arm64.zip
+```
+
+The app is not signed or notarized, so macOS blocks it the first time it is
+opened. Users can allow it under System Settings > Privacy & Security
+("Open Anyway").
 
 ## AppImage
 

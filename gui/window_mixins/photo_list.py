@@ -93,9 +93,17 @@ class PhotoListMixin:
         self.list_widget.setUpdatesEnabled(False)
         try:
             self.list_widget.clear()
-            self._gps_group_header_items = []
+            self._group_header_items = []
             gps_header_added = False
             gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
+            no_gps_count = len(self.session.thumbnail_items) - gps_count
+
+            # Photos without GPS are listed first, under their own heading.
+            if no_gps_count:
+                self._build_group_header_item(
+                    f"Photos without GPS Coordinates ({no_gps_count})",
+                    with_divider=False,
+                )
 
             # Read all RAW previews in one batch before building the items.
             self.thumbnail_loader.prefetch(
@@ -104,7 +112,10 @@ class PhotoListMixin:
 
             for item_data in self.session.thumbnail_items:
                 if item_data.has_gps and not gps_header_added:
-                    self._build_gps_group_header_item(gps_count)
+                    self._build_group_header_item(
+                        f"Photos with GPS Coordinates ({gps_count})",
+                        with_divider=True,
+                    )
                     gps_header_added = True
 
                 path = item_data.path
@@ -135,13 +146,16 @@ class PhotoListMixin:
             if (path_text := item.data(THUMBNAIL_PATH_ROLE)) is not None
         ]
 
-    def _build_gps_group_header_item(self, gps_count: int) -> QListWidgetItem:
+    def _build_group_header_item(self, title: str, *, with_divider: bool) -> QListWidgetItem:
         item = QListWidgetItem()
         item.setFlags(Qt.NoItemFlags)
         item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.addItem(item)
-        self.list_widget.setItemWidget(item, self._build_gps_group_header_widget(gps_count))
-        self._gps_group_header_items.append(item)
+        self.list_widget.setItemWidget(
+            item,
+            self._build_group_header_widget(title, with_divider=with_divider),
+        )
+        self._group_header_items.append(item)
         return item
 
     def _thumbnail_group_header_size(self) -> QSize:
@@ -151,27 +165,30 @@ class PhotoListMixin:
         )
 
     def _refresh_thumbnail_group_header_sizes(self) -> None:
-        for item in getattr(self, "_gps_group_header_items", []):
+        for item in getattr(self, "_group_header_items", []):
             item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.doItemsLayout()
 
-    def _build_gps_group_header_widget(self, gps_count: int) -> QWidget:
+    def _build_group_header_widget(self, title: str, *, with_divider: bool) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Plain)
-        line.setFixedHeight(1)
+        # The divider separates a group from the one above it, so the first
+        # group on the page goes without one.
+        if with_divider:
+            line = QFrame()
+            line.setFrameShape(QFrame.HLine)
+            line.setFrameShadow(QFrame.Plain)
+            line.setFixedHeight(1)
+            layout.addWidget(line)
 
-        label = QLabel(f"Photos with GPS Coordinates ({gps_count})")
+        label = QLabel(title)
         label.setObjectName("thumbnailGroupHeader")
         label.setWordWrap(False)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        layout.addWidget(line)
         layout.addWidget(label)
         return widget
 

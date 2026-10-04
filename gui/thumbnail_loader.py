@@ -30,10 +30,11 @@ from PySide6.QtGui import (
 )
 
 from core.file_types import JPEG_EXTENSIONS, is_raw_file
+from core.models import EmbeddedPreview
 from core.runtime_paths import resource_path
 
-# Reads embedded RAW previews: list of paths -> {path: (JPEG bytes, EXIF orientation)}.
-type PreviewReader = Callable[[list[Path]], dict[Path, tuple[bytes, int]]]
+# Reads embedded RAW previews: list of paths -> {path: EmbeddedPreview}.
+type PreviewReader = Callable[[list[Path]], dict[Path, EmbeddedPreview]]
 
 
 class ThumbnailLoader:
@@ -163,7 +164,7 @@ class ThumbnailLoader:
         for path, key in needed.items():
             preview = previews.get(path)
             self._raw_pixmaps[key] = (
-                self._preview_to_pixmap(*preview) if preview is not None else None
+                self._preview_to_pixmap(preview) if preview is not None else None
             )
 
     def _load_raw_thumbnail(self, path: Path) -> QPixmap | None:
@@ -175,18 +176,13 @@ class ThumbnailLoader:
             self.prefetch([path])
         return self._raw_pixmaps.get(key)
 
-    def _preview_to_pixmap(self, jpeg_bytes: bytes, orientation: int) -> QPixmap | None:
+    def _preview_to_pixmap(self, preview: EmbeddedPreview) -> QPixmap | None:
         """
-        Decode an embedded preview at thumbnail size and rotate it upright.
-
-        Args:
-            jpeg_bytes:
-                The embedded JPEG preview.
-            orientation:
-                The RAW file's EXIF orientation, 1-8 (1 = already upright).
+        Decode an embedded preview at thumbnail size, trim any padding, and
+        rotate it upright.
         """
         buffer = QBuffer()
-        buffer.setData(QByteArray(jpeg_bytes))
+        buffer.setData(QByteArray(preview.jpeg_bytes))
         buffer.open(QBuffer.ReadOnly)
         reader = QImageReader(buffer)
         # Use the RAW file's orientation, not any tag inside the preview.
@@ -206,7 +202,9 @@ class ThumbnailLoader:
         if image.isNull():
             return None
 
-        image = _apply_exif_orientation(image, orientation)
+        if preview.image_width and preview.image_height:
+            image = _crop_to_aspect(image, preview.image_width, preview.image_height)
+        image = _apply_exif_orientation(image, preview.orientation)
         pixmap = QPixmap.fromImage(image)
         return None if pixmap.isNull() else pixmap
 
@@ -451,3 +449,28 @@ def _apply_exif_orientation(image: QImage, orientation: int) -> QImage:
     if rotation:
         image = image.transformed(QTransform().rotate(rotation))
     return image
+
+
+def _crop_to_aspect(image: QImage, width: int, height: int) -> QImage:
+    """
+    Crop an image, centered, to the width:height shape of the full photo.
+
+    Removes the black bars some cameras add to small previews (Canon CR3
+    thumbnails are 4:3 while the photo is 3:2). Images already within 2% of
+    the right shape are returned unchanged.
+    """
+    target_ratio = width / height
+    image_ratio = image.width() / image.height()
+    if abs(image_ratio / target_ratio - 1) < 0.02:
+        return image
+
+    if image_ratio < target_ratio:
+        # Too tall for the photo's shape: trim the top and bottom.
+        new_height = max(1, round(image.width() / target_ratio))
+        top = (image.height() - new_height) // 2
+        return image.copy(0, top, image.width(), new_height)
+
+    # Too wide: trim the left and right.
+    new_width = max(1, round(image.height() * target_ratio))
+    left = (image.width() - new_width) // 2
+    return image.copy(left, 0, new_width, image.height())

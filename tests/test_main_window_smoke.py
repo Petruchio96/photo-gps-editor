@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
+from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
 from services.workflow_facade import PhotoWorkflowFacade
 
 
@@ -105,10 +106,20 @@ class MainWindowSmokeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.window.close()
 
+    def _photo_items(self) -> list:
+        # Group headings sit between photos in the grid; skip them.
+        list_widget = self.window.list_widget
+        return [
+            list_widget.item(row)
+            for row in range(list_widget.count())
+            if list_widget.item(row).data(THUMBNAIL_PATH_ROLE) is not None
+        ]
+
     def _select_index(self, index: int, clear: bool = True) -> None:
+        """Select the index-th photo in the grid (headings not counted)."""
         if clear:
             self.window.list_widget.clearSelection()
-        item = self.window.list_widget.item(index)
+        item = self._photo_items()[index]
         item.setSelected(True)
         self.window.update_details_panel()
 
@@ -684,6 +695,30 @@ class MainWindowSmokeTests(unittest.TestCase):
         # The other file was still restored.
         self.assertEqual(self.gps_by_path[self.paths[1]], (None, None))
         self.assertTrue(self.window.redo_action.isEnabled())
+
+    def _group_headings(self) -> list[str]:
+        list_widget = self.window.list_widget
+        headings = []
+        for row in range(list_widget.count()):
+            widget = list_widget.itemWidget(list_widget.item(row))
+            if widget is not None:
+                headings.append(widget.findChild(QLabel, "thumbnailGroupHeader").text())
+        return headings
+
+    def test_grid_has_heading_for_each_gps_group(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+
+        self.assertEqual(
+            self._group_headings(),
+            [
+                "Photos without GPS Coordinates (1)",
+                "Photos with GPS Coordinates (1)",
+            ],
+        )
+
+    def test_no_heading_for_an_empty_group(self) -> None:
+        self.assertEqual(self._group_headings(), ["Photos without GPS Coordinates (2)"])
 
     def test_keep_backups_option_is_saved_and_applied(self) -> None:
         self.assertFalse(self.window.keep_backups_action.isChecked())

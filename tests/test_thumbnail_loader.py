@@ -10,6 +10,7 @@ from PIL import Image
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
+from core.models import EmbeddedPreview
 from gui.thumbnail_loader import ThumbnailLoader, _apply_exif_orientation
 
 
@@ -84,7 +85,7 @@ class RawThumbnailTests(unittest.TestCase):
 
         def reader(paths):
             reader_calls.append(list(paths))
-            return {raw: (_jpeg_bytes(120, 80), 6)}
+            return {raw: EmbeddedPreview(_jpeg_bytes(120, 80), 6)}
 
         loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
         pixmap = loader.load_icon(raw).pixmap(64, 64)
@@ -102,7 +103,7 @@ class RawThumbnailTests(unittest.TestCase):
 
         def reader(paths):
             reader_calls.append(list(paths))
-            return {path: (_jpeg_bytes(40, 30), 1) for path in paths}
+            return {path: EmbeddedPreview(_jpeg_bytes(40, 30), 1) for path in paths}
 
         loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
         loader.prefetch([first, jpeg, second])
@@ -111,6 +112,20 @@ class RawThumbnailTests(unittest.TestCase):
         loader.prefetch([first, second])
 
         self.assertEqual(reader_calls, [[first, second]])
+
+    def test_padded_preview_is_cropped_to_photo_shape(self) -> None:
+        raw = self._raw_file("padded.cr3")
+
+        # A 4:3 preview (like Canon's 160x120 CR3 thumbnail) of a 3:2 photo,
+        # shot in portrait (orientation 8).
+        def reader(paths):
+            return {raw: EmbeddedPreview(_jpeg_bytes(160, 120), 8, 6000, 4000)}
+
+        loader = ThumbnailLoader(thumbnail_size=120, preview_reader=reader)
+        pixmap = loader.load_icon(raw).pixmap(120, 120)
+
+        # 160x120 scales to 120x90, crops to 120x80 (3:2), then rotates to 80x120.
+        self.assertEqual((pixmap.width(), pixmap.height()), (80, 120))
 
     def test_raw_file_without_preview_or_reader_failure_gets_fallback_icon(self) -> None:
         raw = self._raw_file("photo.cr2")

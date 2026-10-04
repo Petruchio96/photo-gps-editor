@@ -26,6 +26,7 @@ import base64
 import itertools
 import json
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -33,6 +34,7 @@ from pathlib import Path
 from typing import IO
 
 from core.file_types import is_raw_file
+from core.models import EmbeddedPreview
 from core.process_guard import NO_WINDOW_FLAGS, start_guarded_process, stop_process_tree
 from core.runtime_paths import default_exiftool_executable
 
@@ -88,7 +90,7 @@ class ExifToolWrapper:
         # time, size) so a changed file never gets a stale thumbnail. None means
         # "this file has no small thumbnail", which is also worth remembering.
         self._remembered_thumbnails: dict[
-            tuple[Path, int, int], tuple[bytes, int] | None
+            tuple[Path, int, int], EmbeddedPreview | None
         ] = {}
 
     def is_available(self) -> bool:
@@ -180,7 +182,9 @@ class ExifToolWrapper:
         """
         Run one bulk GPS read, optionally capturing small embedded thumbnails.
         """
-        extra_options = ["-b", "-ThumbnailImage", "-Orientation"] if with_thumbnails else []
+        extra_options = (
+            ["-b", "-ThumbnailImage", "-Orientation", "-ImageSize"] if with_thumbnails else []
+        )
         output = self._run(
             ["-json", "-n", *extra_options, "-GPSLatitude", "-GPSLongitude"],
             paths,
@@ -205,7 +209,7 @@ class ExifToolWrapper:
 
         return gps_by_path
 
-    def _remember_thumbnail(self, path: Path, preview: tuple[bytes, int] | None) -> None:
+    def _remember_thumbnail(self, path: Path, preview: EmbeddedPreview | None) -> None:
         key = _file_key(path)
         if key is None:
             return
@@ -213,17 +217,17 @@ class ExifToolWrapper:
             self._remembered_thumbnails.clear()
         self._remembered_thumbnails[key] = preview
 
-    def read_embedded_preview(self, path: Path) -> tuple[bytes, int] | None:
+    def read_embedded_preview(self, path: Path) -> EmbeddedPreview | None:
         """
         Read the JPEG preview stored inside one RAW file, for a thumbnail.
 
         Returns:
-            (JPEG bytes, EXIF orientation), or None if there is no preview.
+            The preview, or None if there is no preview.
             See read_embedded_previews() for details.
         """
         return self.read_embedded_previews([path]).get(path)
 
-    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, tuple[bytes, int]]:
+    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, EmbeddedPreview]:
         """
         Read the JPEG previews stored inside RAW files, for thumbnails.
 
@@ -233,13 +237,10 @@ class ExifToolWrapper:
         without a small preview are asked for a larger one.
 
         Returns:
-            {path: (JPEG bytes, EXIF orientation)} for every file that has an
-            embedded preview. Files without one, or that cannot be read, are
-            left out. The orientation (1-8, 1 = normal) describes how the
-            photo must be rotated or flipped for display; embedded previews
-            are stored unrotated.
+            {path: EmbeddedPreview} for every file that has an embedded
+            preview. Files without one, or that cannot be read, are left out.
         """
-        previews: dict[Path, tuple[bytes, int]] = {}
+        previews: dict[Path, EmbeddedPreview] = {}
         # Files the GPS read showed have no small thumbnail; skip asking again.
         known_without_thumbnail: set[Path] = set()
 
@@ -276,6 +277,7 @@ class ExifToolWrapper:
                     "-n",
                     f"-{tag}",
                     "-Orientation",
+                    "-ImageSize",
                     *[str(path) for path in candidates],
                 ]
             )
@@ -557,9 +559,9 @@ class ExifToolWrapper:
                 pass
 
 
-def _decode_preview(record: dict, tag: str) -> tuple[bytes, int] | None:
+def _decode_preview(record: dict, tag: str) -> EmbeddedPreview | None:
     """
-    Pull a base64 preview image and the orientation out of one JSON record.
+    Pull a base64 preview image, orientation, and photo size out of one JSON record.
 
     Returns None if the record has no such preview.
     """
@@ -570,7 +572,19 @@ def _decode_preview(record: dict, tag: str) -> tuple[bytes, int] | None:
     orientation = record.get("Orientation")
     if not isinstance(orientation, int) or not 1 <= orientation <= 8:
         orientation = 1
-    return base64.b64decode(value[len("base64:"):]), orientation
+
+    # With -n, ImageSize is "WIDTH HEIGHT" (some versions use "WIDTHxHEIGHT").
+    image_width = image_height = None
+    size_parts = re.findall(r"\d+", str(record.get("ImageSize", "")))
+    if len(size_parts) == 2 and all(int(part) > 0 for part in size_parts):
+        image_width, image_height = (int(part) for part in size_parts)
+
+    return EmbeddedPreview(
+        jpeg_bytes=base64.b64decode(value[len("base64:"):]),
+        orientation=orientation,
+        image_width=image_width,
+        image_height=image_height,
+    )
 
 
 def _file_key(path: Path) -> tuple[Path, int, int] | None:

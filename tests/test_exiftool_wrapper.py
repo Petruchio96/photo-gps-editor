@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.exiftool_wrapper import ExifToolWrapper
+from core.models import EmbeddedPreview
 
 
 class ExifToolWrapperTests(unittest.TestCase):
@@ -164,7 +165,7 @@ class ExifToolWrapperTests(unittest.TestCase):
 
         self.assertEqual(
             previews,
-            {small: (b"jpeg-bytes", 6), large_only: (b"jpeg-bytes", 8)},
+            {small: EmbeddedPreview(b"jpeg-bytes", 6), large_only: EmbeddedPreview(b"jpeg-bytes", 8)},
         )
         calls = wrapper._execute.call_args_list
         self.assertIn("-ThumbnailImage", calls[0].args[0])
@@ -203,7 +204,7 @@ class ExifToolWrapperTests(unittest.TestCase):
             previews = wrapper.read_embedded_previews([cr3, dng])
 
         self.assertEqual(gps[cr3], {"latitude": 1.0, "longitude": 2.0})
-        self.assertEqual(previews, {cr3: (b"small-jpeg", 8), dng: (b"small-jpeg", 1)})
+        self.assertEqual(previews, {cr3: EmbeddedPreview(b"small-jpeg", 8), dng: EmbeddedPreview(b"small-jpeg", 1)})
 
         calls = [call.args[0] for call in wrapper._execute.call_args_list]
         self.assertEqual(len(calls), 3)
@@ -214,6 +215,24 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-PreviewImage", calls[2])
         self.assertEqual(calls[2][-1], str(dng))
         self.assertNotIn(str(cr3), calls[2])
+
+    def test_preview_includes_photo_size(self) -> None:
+        photo = Path("/tmp/photo.cr3")
+        encoded = "base64:" + base64.b64encode(b"jpeg").decode()
+        for image_size in ("6000 4000", "6000x4000"):
+            wrapper, _ = self._wrapper_with_reply(
+                output=json.dumps([{
+                    "SourceFile": str(photo),
+                    "ThumbnailImage": encoded,
+                    "Orientation": 8,
+                    "ImageSize": image_size,
+                }])
+            )
+            with self.subTest(image_size=image_size):
+                self.assertEqual(
+                    wrapper.read_embedded_preview(photo),
+                    EmbeddedPreview(b"jpeg", 8, 6000, 4000),
+                )
 
     def test_remembered_thumbnail_is_ignored_after_file_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -233,7 +252,7 @@ class ExifToolWrapperTests(unittest.TestCase):
             cr3.write_bytes(b"changed data")  # e.g. GPS was written in between
             previews = wrapper.read_embedded_previews([cr3])
 
-        self.assertEqual(previews, {cr3: (b"new", 1)})
+        self.assertEqual(previews, {cr3: EmbeddedPreview(b"new", 1)})
         self.assertIn("-ThumbnailImage", wrapper._execute.call_args.args[0])
 
     def test_read_embedded_preview_defaults_bad_orientation_to_normal(self) -> None:
@@ -243,7 +262,7 @@ class ExifToolWrapperTests(unittest.TestCase):
             output=json.dumps([{"SourceFile": str(photo), "ThumbnailImage": encoded, "Orientation": 42}])
         )
 
-        self.assertEqual(wrapper.read_embedded_preview(photo), (b"jpeg", 1))
+        self.assertEqual(wrapper.read_embedded_preview(photo), EmbeddedPreview(b"jpeg", 1))
 
     def test_keep_backups_leaves_out_overwrite_original(self) -> None:
         wrapper, execute_mock = self._wrapper_with_reply()
@@ -359,10 +378,11 @@ class ExifToolWrapperIntegrationTests(unittest.TestCase):
             "Failed to add test thumbnail.",
         )
 
-        jpeg_bytes, orientation = self.wrapper.read_embedded_preview(photo)
+        preview = self.wrapper.read_embedded_preview(photo)
 
-        self.assertEqual(jpeg_bytes, thumbnail.read_bytes())
-        self.assertEqual(orientation, 6)
+        self.assertEqual(preview.jpeg_bytes, thumbnail.read_bytes())
+        self.assertEqual(preview.orientation, 6)
+        self.assertEqual((preview.image_width, preview.image_height), (8, 8))
         self.assertIsNone(self.wrapper.read_embedded_preview(self._make_photo("plain.jpg")))
 
     def test_one_process_serves_many_commands(self) -> None:

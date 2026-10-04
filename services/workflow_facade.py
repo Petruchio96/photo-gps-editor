@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.exiftool_wrapper import ExifToolWrapper
+from core.models import EmbeddedPreview
 from core.photo_loader import PhotoLoader
 from services.models import (
     ApplyPreparation,
@@ -37,10 +38,10 @@ class PhotoWorkflowFacade:
         self.loader = loader or PhotoLoader(self.writer)
         self.metadata_cache = metadata_cache or PhotoMetadataCache()
 
-    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, tuple[bytes, int]]:
+    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, EmbeddedPreview]:
         """
-        Return {path: (JPEG bytes, EXIF orientation)} for RAW files' built-in
-        previews. Files without a preview are left out.
+        Return the built-in previews of RAW files, for thumbnails. Files
+        without a preview are left out.
         """
         return self.writer.read_embedded_previews(paths)
 

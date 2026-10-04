@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -127,8 +128,10 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertIsNotNone(self.window.clear_selected_gps_button)
         self.assertIsNotNone(self.window.about_action)
         self.assertEqual(self.window.remove_photos_action.text(), "Remove Photos")
-        self.assertIn(
-            self.window.exit_action.shortcuts()[0],
+        # The platform decides the Quit shortcut: Ctrl+Q on most Linux
+        # desktops, Cmd+Q on macOS, and none on Windows (Alt+F4 is built in).
+        self.assertEqual(
+            self.window.exit_action.shortcuts(),
             QKeySequence.keyBindings(QKeySequence.StandardKey.Quit),
         )
         self.assertEqual(self.window.undo_action.text(), "Undo")
@@ -196,10 +199,13 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def test_about_dialog_uses_clickable_external_repository_link(self) -> None:
         about_dialog = self.window._build_about_dialog()
-        self.assertIn(APP_VERSION, about_dialog.windowTitle())
+        # macOS hides message box titles, so Qt reports an empty title there.
+        if sys.platform != "darwin":
+            self.assertIn(APP_VERSION, about_dialog.windowTitle())
         self.assertFalse(about_dialog.iconPixmap().isNull())
         link_label = about_dialog.findChild(QLabel, "aboutRepositoryLink")
         self.assertIsNotNone(link_label)
+        self.assertIn(APP_VERSION, link_label.text())
         self.assertEqual(link_label.textFormat(), Qt.RichText)
         self.assertEqual(link_label.textInteractionFlags(), Qt.TextBrowserInteraction)
         self.assertTrue(link_label.openExternalLinks())

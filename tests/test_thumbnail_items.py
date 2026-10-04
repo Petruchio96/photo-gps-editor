@@ -94,7 +94,8 @@ class ThumbnailItemServiceTests(unittest.TestCase):
 
         for name in ["one.jpg", "two.jpg", "three.jpg"]:
             item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, f"/tmp/{name}")
+            # The app stores str(path), which uses backslashes on Windows.
+            item.setData(Qt.UserRole, str(Path("/tmp") / name))
             widget.addItem(item)
 
         header = QListWidgetItem("Files with GPS Coordinates")

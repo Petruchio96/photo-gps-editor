@@ -399,6 +399,10 @@ QPushButton#filterButton[segment="last"] {
 QPushButton#filterButton:hover {
     background: #f3f8fe;
 }
+QPushButton#filterButton:disabled {
+    color: #a8b3bf;
+    background: #f5f7f9;
+}
 QPushButton#filterButton:checked {
     background: #26425f;
     color: #ffffff;

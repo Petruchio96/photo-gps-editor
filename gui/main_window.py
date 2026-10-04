@@ -112,7 +112,7 @@ class MainWindow(
         self._build_menu_bar()
         self._build_loading_timers()
 
-        # Esc leaves Pick from Grid mode (only active while picking).
+        # Esc leaves pick mode (Copy from Photo on Left; only active while picking).
         self._pick_escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self._pick_escape_shortcut.setEnabled(False)
         self._pick_escape_shortcut.activated.connect(self.stop_picking_location)
@@ -393,6 +393,7 @@ class MainWindow(
             self.undo_action.setEnabled(self.gps_history.can_undo)
         if hasattr(self, "redo_action"):
             self.redo_action.setEnabled(self.gps_history.can_redo)
+        self._apply_pick_mode_lock()
 
     def undo_gps_edit(self) -> None:
         states = self.gps_history.undo_states()

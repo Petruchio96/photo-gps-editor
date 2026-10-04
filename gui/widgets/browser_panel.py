@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.widgets.loading_indicator import LoadingIndicator
-from gui.widgets.thumbnail_delegate import ThumbnailDelegate
+from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, ThumbnailDelegate
 
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
@@ -51,6 +51,14 @@ class ThumbnailGrid(QListWidget):
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        # While picking, show a "not allowed" cursor over dimmed photos.
+        if self._window.is_picking_location:
+            item = self.itemAt(event.position().toPoint())
+            unpickable = item is not None and item.data(PICK_DISABLED_ROLE)
+            self.viewport().setCursor(Qt.ForbiddenCursor if unpickable else Qt.CrossCursor)
+        super().mouseMoveEvent(event)
 
     def keyPressEvent(self, event) -> None:
         # Esc leaves pick mode when the grid has focus (the window-wide Esc
@@ -170,11 +178,7 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.pick_banner_label = QLabel()
     window.pick_banner_label.setObjectName("pickBannerText")
     window.pick_banner_label.setWordWrap(True)
-    window.pick_cancel_button = QPushButton("Cancel")
-    window.pick_cancel_button.setObjectName("pickCancel")
-    window.pick_cancel_button.clicked.connect(window.stop_picking_location)
     banner_layout.addWidget(window.pick_banner_label, 1)
-    banner_layout.addWidget(window.pick_cancel_button)
     window.pick_banner.hide()
 
     window.list_widget = ThumbnailGrid(window)
@@ -187,6 +191,8 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.list_widget.setVerticalScrollMode(QListWidget.ScrollPerPixel)
     window.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     window.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
+    # Mouse moves are needed (not just drags) for the pick-mode cursor.
+    window.list_widget.setMouseTracking(True)
     # Tiles stay in place: no dragging them around the grid.
     window.list_widget.setMovement(QListWidget.Static)
     window.list_widget.setDragEnabled(False)

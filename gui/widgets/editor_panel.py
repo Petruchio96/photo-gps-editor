@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 
 SELECTION_PREVIEW_HEIGHT = 168
 
+# The pick button's label; it reads "Cancel" while picking.
+PICK_BUTTON_TEXT = "Copy from Photo on Left"
+
 
 def build_editor_panel(window: "MainWindow") -> QWidget:
     """
@@ -77,12 +80,12 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
 
     # Pick a photo in the grid to take its location from ("eyedropper").
     # Blue throughout means "where the location comes from".
-    window.pick_location_button = QPushButton("Pick from Grid")
+    window.pick_location_button = QPushButton(PICK_BUTTON_TEXT)
     window.pick_location_button.setObjectName("pickButton")
     window.pick_location_button.setCheckable(True)
     window.pick_location_button.setToolTip(
-        "Click this, then click a photo in the grid to use its location. "
-        "Your selection of photos to change is left alone."
+        "Click this, then click a photo with GPS on the left to copy its "
+        "location. Your selection of photos to change is left alone."
     )
     window.pick_location_button.clicked.connect(window.toggle_picking_location)
 
@@ -131,7 +134,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.paste_coordinates_button.setToolTip("Paste coordinates copied from a map or another photo")
     window.paste_coordinates_button.clicked.connect(window.paste_coordinates_from_clipboard)
 
-    window.location_from_photo_button = QPushButton("From a Photo…")
+    window.location_from_photo_button = QPushButton("Browse Photos")
     window.location_from_photo_button.setProperty("tone", "neutral")
     window.location_from_photo_button.setToolTip(
         "Choose any photo file and use its GPS coordinates"

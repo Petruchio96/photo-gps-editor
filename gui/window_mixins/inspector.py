@@ -50,6 +50,7 @@ class InspectorMixin:
 
         self.remove_gps_button.setText(state.remove_gps_label)
         self.remove_gps_button.setEnabled(state.can_remove_gps)
+        self._apply_pick_mode_lock()
 
     def _refresh_selection_preview(self) -> None:
         """

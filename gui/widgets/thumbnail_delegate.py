@@ -10,7 +10,7 @@ Why a delegate:
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,6 +25,10 @@ SHIMMER_ROLE = Qt.UserRole + 3
 
 # Item data role: True on the photo the New Location was taken from.
 SOURCE_ROLE = Qt.UserRole + 5
+
+# Item data role: True while picking a location, on photos that cannot be
+# picked because they have no GPS. They are drawn dimmed with "No GPS".
+PICK_DISABLED_ROLE = Qt.UserRole + 6
 
 SOURCE_COLOR = QColor("#1f6feb")
 
@@ -47,6 +51,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option, index) -> None:
         super().paint(painter, option, index)
+        if index.data(PICK_DISABLED_ROLE):
+            _paint_unpickable(painter, option)
         if index.data(SOURCE_ROLE):
             _paint_source_marker(painter, option)
         if not index.data(SHIMMER_ROLE):
@@ -122,3 +128,28 @@ def _paint_source_marker(painter: QPainter, option) -> None:
     painter.setPen(QColor("white"))
     painter.drawText(chip, Qt.AlignCenter, label)
     painter.restore()
+
+
+def _paint_unpickable(painter: QPainter, option) -> None:
+    """
+    Wash out a photo that cannot be picked (no GPS) and label it "No GPS".
+    """
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    rect = QRectF(option.rect)
+    painter.fillRect(rect, QColor(244, 246, 249, 205))
+
+    label = "No GPS"
+    font = painter.font()
+    font.setBold(True)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    chip = QRectF(0, 0, metrics.horizontalAdvance(label) + 16, metrics.height() + 6)
+    chip.moveCenter(rect.center() - QPointF(0, rect.height() * 0.12))
+    chip_path = QPainterPath()
+    chip_path.addRoundedRect(chip, 8, 8)
+    painter.fillPath(chip_path, QColor("#8c9aa8"))
+    painter.setPen(QColor("white"))
+    painter.drawText(chip, Qt.AlignCenter, label)
+    painter.restore()
+

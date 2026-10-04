@@ -217,6 +217,7 @@ class PhotoListMixin:
 
         self._apply_grid_filter()
         self._refresh_source_marker()
+        self._refresh_pick_marks()
         self.update_details_panel()
         self._start_thumbnail_job(pending)
 

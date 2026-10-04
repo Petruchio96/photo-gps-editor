@@ -116,7 +116,7 @@ def build_inspector_state(
     if count == 0:
         apply_hint, apply_hint_tone = "Select the photos to update in the grid.", "info"
     elif new_location is None and fields_empty:
-        apply_hint = "Set a new location above: Pick from Grid, type, or paste one."
+        apply_hint = "Set a new location above: copy it from a photo, type, or paste one."
         apply_hint_tone = "info"
     elif new_location is None:
         apply_hint = "The new location isn't valid. Check the latitude and longitude."

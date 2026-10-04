@@ -4,8 +4,8 @@ The New Location fields in the inspector panel.
 Two separate jobs, kept visually separate:
     - The photos selected in the grid are the photos to change.
     - The New Location is where their new coordinates come from: typed,
-      pasted, read from a photo file ("From a Photo…"), or picked from the
-      grid with the "Pick from Grid" eyedropper or the right-click menu.
+      pasted, read from a photo file ("Browse Photos"), or copied from a photo
+      on the left with "Copy from Photo on Left" or the right-click menu.
       Picking never changes the selection.
 
 When the location came from a photo, that photo is the "location source":
@@ -22,7 +22,9 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem
 
 from core.models import GpsCoordinates
 from gui.presenters.inspector_state import format_coordinates
-from gui.widgets.thumbnail_delegate import SOURCE_ROLE
+from gui.widgets.editor_panel import PICK_BUTTON_TEXT
+from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, SOURCE_ROLE
+from gui.window_mixins.photo_list import THUMBNAIL_LATITUDE_ROLE
 from services.coordinate_service import (
     parse_coordinate_text,
     parse_latitude_text,
@@ -30,7 +32,10 @@ from services.coordinate_service import (
     parse_manual_coordinates,
 )
 
-PICK_PROMPT = "Click a photo that has GPS to use its location. Press Esc or Cancel to stop."
+PICK_PROMPT = (
+    "Click a photo on the left to copy its location. "
+    "Photos without GPS are dimmed. Press Esc or Cancel to stop."
+)
 
 
 class LocationEditorMixin:
@@ -113,7 +118,7 @@ class LocationEditorMixin:
             "success",
         )
 
-    # --- Pick from Grid (eyedropper) -----------------------------------------
+    # --- Copy from Photo on Left (pick mode) ----------------------------------
 
     @property
     def is_picking_location(self) -> bool:
@@ -127,43 +132,106 @@ class LocationEditorMixin:
 
     def start_picking_location(self) -> None:
         """
-        Enter pick mode: the next click on a photo sets the location source.
+        Enter pick mode: the next click on a photo with GPS copies its location.
+
+        While picking, photos without GPS are dimmed and can't be picked, and
+        everything else is disabled except the All / Has GPS filters, Choose
+        Photos, Remove from List, and this button (which reads "Cancel").
         """
         self._picking_location = True
+        if self._grid_filter == "needs":
+            # Every photo shown would be unpickable.
+            self.set_grid_filter("all")
+
         self.pick_location_button.setChecked(True)
-        self.pick_location_button.setText("Picking… (Esc to cancel)")
+        self.pick_location_button.setText("Cancel")
         self.pick_banner_label.setText(PICK_PROMPT)
         self.pick_banner.show()
         self.list_widget.viewport().setCursor(Qt.CrossCursor)
         self._pick_escape_shortcut.setEnabled(True)
+        self._refresh_pick_marks()
+        self._apply_pick_mode_lock()
 
     def stop_picking_location(self) -> None:
         self._picking_location = False
         self.pick_location_button.setChecked(False)
-        self.pick_location_button.setText("Pick from Grid")
+        self.pick_location_button.setText(PICK_BUTTON_TEXT)
         self.pick_banner.hide()
         self.list_widget.viewport().unsetCursor()
         self._pick_escape_shortcut.setEnabled(False)
+        self._refresh_pick_marks()
+        # Controls that are normally always on: turn them back on. The rest
+        # get their normal state recomputed by update_details_panel().
+        for widget in (
+            self.latitude_input,
+            self.longitude_input,
+            self.location_from_photo_button,
+            self.source_card_clear,
+            self.grid_filter_buttons["needs"],
+        ):
+            widget.setEnabled(True)
+        self.update_details_panel()
 
     def pick_location_from_item(self, item: QListWidgetItem | None) -> None:
         """
         Called for a click on the grid while picking.
         """
-        if item is None:
+        if item is None or item.data(PICK_DISABLED_ROLE):
+            # Empty space, or a dimmed photo without GPS: nothing to pick.
             return
         path_text = item.data(Qt.UserRole)
         if path_text is None:
             # A group heading, not a photo.
             return
 
-        path = Path(path_text)
-        if self.use_location_from_path(path):
+        if self.use_location_from_path(Path(path_text)):
             self.stop_picking_location()
-        else:
-            self.pick_banner_label.setText(
-                f"{path.name} has no GPS. Click a photo that has GPS "
-                "(the Has GPS filter shows them), or press Esc to stop."
-            )
+
+    def _refresh_pick_marks(self) -> None:
+        """
+        Dim photos without GPS while picking; clear the dimming otherwise.
+        """
+        for item in self._grid_items_by_path.values():
+            unpickable = self._picking_location and item.data(THUMBNAIL_LATITUDE_ROLE) is None
+            if bool(item.data(PICK_DISABLED_ROLE)) != unpickable:
+                item.setData(PICK_DISABLED_ROLE, unpickable)
+
+    def _apply_pick_mode_lock(self) -> None:
+        """
+        While picking, disable everything except the allowed controls.
+
+        Called after anything that recomputes enabled states, so the lock
+        stays in place (for example when Choose Photos loads new photos).
+        """
+        if not self._picking_location:
+            return
+
+        for widget in (
+            self.select_all_button,
+            self.clear_selection_button,
+            self.grid_filter_buttons["needs"],
+            self.copy_location_button,
+            self.latitude_input,
+            self.longitude_input,
+            self.paste_coordinates_button,
+            self.location_from_photo_button,
+            self.clear_location_button,
+            self.source_card_clear,
+            self.apply_button,
+            self.remove_gps_button,
+        ):
+            widget.setEnabled(False)
+
+        for action_name in (
+            "select_all_action",
+            "copy_action",
+            "paste_action",
+            "undo_action",
+            "redo_action",
+        ):
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(False)
 
     # --- Location source display ---------------------------------------------
 
@@ -245,6 +313,7 @@ class LocationEditorMixin:
         )
         if hasattr(self, "paste_action"):
             self.paste_action.setEnabled(can_paste_coordinates)
+        self._apply_pick_mode_lock()
 
     def parse_coordinate_text(self, text: str) -> tuple[str, str] | None:
         return parse_coordinate_text(text)

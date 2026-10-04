@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QListWidget, QMessageBox
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
 from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
-from gui.widgets.thumbnail_delegate import SOURCE_ROLE
+from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, SOURCE_ROLE
 from services.workflow_facade import PhotoWorkflowFacade
 
 
@@ -173,7 +173,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertNotEqual(self.window.select_button.objectName(), "accentButton")
         self.assertNotEqual(self.window.paste_coordinates_button.objectName(), "accentButton")
         self.assertEqual(self.window.paste_coordinates_button.text(), "Paste")
-        self.assertEqual(self.window.location_from_photo_button.text(), "From a Photo…")
+        self.assertEqual(self.window.location_from_photo_button.text(), "Browse Photos")
+        self.assertEqual(self.window.pick_location_button.text(), "Copy from Photo on Left")
         self.assertEqual(self.window.clear_location_button.text(), "Clear")
         # The platform decides the Quit shortcut: Ctrl+Q on most Linux
         # desktops, Cmd+Q on macOS, and none on Windows (Alt+F4 is built in).
@@ -383,7 +384,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         )
         self.assertEqual(self.window.apply_hint_label.property("tone"), "warning")
 
-    # --- Location source: Pick from Grid, right-click, source card ---------
+    # --- Location source: Copy from Photo on Left, right-click, card ------
 
     def _item_for(self, path: Path):
         return self.window._grid_items_by_path[str(path)]
@@ -413,15 +414,104 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertTrue(self._item_for(self.paths[1]).data(SOURCE_ROLE))
         self.assertFalse(self._item_for(self.paths[0]).data(SOURCE_ROLE))
 
-    def test_picking_a_photo_without_gps_explains_and_keeps_picking(self) -> None:
-        self.window.start_picking_location()
+    def test_pick_mode_dims_photos_without_gps_and_ignores_clicks_on_them(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+
+        self.window.pick_location_button.click()
+
+        self.assertEqual(self.window.pick_location_button.text(), "Cancel")
+        self.assertTrue(self._item_for(self.paths[0]).data(PICK_DISABLED_ROLE))
+        self.assertFalse(self._item_for(self.paths[1]).data(PICK_DISABLED_ROLE))
 
         self._click_item(self.paths[0])
 
         self.assertTrue(self.window.is_picking_location)
-        self.assertIn("photo-one.jpg has no GPS", self.window.pick_banner_label.text())
         self.assertIsNone(self._new_location())
         self.assertEqual(self.window.get_selected_paths(), [])
+
+    def test_pick_mode_locks_everything_but_the_allowed_controls(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self._select_paths([self.paths[0]])
+        self._set_location(*self.location)
+        QApplication.clipboard().setText("40.1, -111.2")
+
+        self.window.start_picking_location()
+
+        window = self.window
+        for widget in (
+            window.select_all_button,
+            window.clear_selection_button,
+            window.grid_filter_buttons["needs"],
+            window.latitude_input,
+            window.longitude_input,
+            window.paste_coordinates_button,
+            window.location_from_photo_button,
+            window.clear_location_button,
+            window.apply_button,
+            window.remove_gps_button,
+        ):
+            self.assertFalse(widget.isEnabled(), widget)
+        for action in (window.select_all_action, window.paste_action, window.undo_action):
+            self.assertFalse(action.isEnabled())
+        for widget in (
+            window.grid_filter_buttons["all"],
+            window.grid_filter_buttons["has"],
+            window.select_button,
+            window.remove_loaded_photos_button,
+            window.pick_location_button,
+        ):
+            self.assertTrue(widget.isEnabled(), widget)
+
+        # The lock survives things that recompute button states.
+        window.update_details_panel()
+        QApplication.clipboard().setText("41.5, -112.5")
+        self.assertFalse(window.apply_button.isEnabled())
+        self.assertFalse(window.paste_coordinates_button.isEnabled())
+
+        window.pick_location_button.click()  # Cancel
+
+        self.assertFalse(window.is_picking_location)
+        self.assertTrue(window.apply_button.isEnabled())
+        self.assertTrue(window.select_all_button.isEnabled())
+        for widget in (
+            window.latitude_input,
+            window.longitude_input,
+            window.location_from_photo_button,
+            window.source_card_clear,
+            window.grid_filter_buttons["needs"],
+            window.clear_location_button,
+            window.clear_selection_button,
+        ):
+            self.assertTrue(widget.isEnabled(), widget)
+        self.assertFalse(self._item_for(self.paths[0]).data(PICK_DISABLED_ROLE))
+
+    def test_starting_pick_mode_switches_needs_gps_filter_to_all(self) -> None:
+        self.window.set_grid_filter("needs")
+
+        self.window.start_picking_location()
+
+        self.assertEqual(self.window._grid_filter, "all")
+        self.assertTrue(self.window.grid_filter_buttons["all"].isChecked())
+
+    def test_choose_photos_and_remove_from_list_work_while_picking(self) -> None:
+        self.window.start_picking_location()
+        new_path = Path("/tmp/new-photo.jpg")
+        self.gps_by_path[new_path] = (None, None)
+
+        with patch.object(self.window, "_pick_photo_files", return_value=[new_path]):
+            self.window.select_button.click()
+
+        self.assertEqual(self.window.session.selected_paths, [new_path])
+        self.assertTrue(self.window.is_picking_location)
+        self.assertTrue(self._item_for(new_path).data(PICK_DISABLED_ROLE))
+        self.assertFalse(self.window.apply_button.isEnabled())
+
+        self.window.remove_loaded_photos_button.click()
+
+        self.assertEqual(self.window.session.selected_paths, [])
+        self.assertTrue(self.window.is_picking_location)
 
     def test_escape_and_cancel_stop_picking(self) -> None:
         self.window.start_picking_location()
@@ -433,9 +523,11 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertFalse(self.window.is_picking_location)
 
         self.window.pick_location_button.click()
-        self.window.pick_cancel_button.click()
+        self.assertEqual(self.window.pick_location_button.text(), "Cancel")
+        self.window.pick_location_button.click()
         self.assertFalse(self.window.is_picking_location)
         self.assertFalse(self.window.pick_location_button.isChecked())
+        self.assertEqual(self.window.pick_location_button.text(), "Copy from Photo on Left")
 
     def test_right_click_does_not_change_selection(self) -> None:
         self._select_paths([self.paths[0]])

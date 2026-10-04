@@ -350,6 +350,91 @@ QLabel#statusCard[tone="info"] {
     color: #21476b;
     border-color: #d6e1ec;
 }
+QLabel#browserHint[tone="success"] {
+    color: #1f6b3a;
+    background: #edf8f1;
+    border: 1px solid #b9dfc6;
+}
+QLabel#browserHint[tone="error"] {
+    color: #9b2c2c;
+    background: #fdf1f1;
+    border: 1px solid #efc4c4;
+}
+QLabel#filterLabel {
+    color: #556579;
+    font-weight: 600;
+}
+QPushButton#filterButton {
+    background: #ffffff;
+    color: #31445a;
+    border: 1px solid #cad6e2;
+    border-radius: 0px;
+    padding: 6px 14px;
+    font-weight: 600;
+}
+QPushButton#filterButton[segment="first"] {
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+QPushButton#filterButton[segment="middle"],
+QPushButton#filterButton[segment="last"] {
+    border-left: none;
+}
+QPushButton#filterButton[segment="last"] {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QPushButton#filterButton:hover {
+    background: #f3f8fe;
+}
+QPushButton#filterButton:checked {
+    background: #26425f;
+    color: #ffffff;
+    border-color: #26425f;
+}
+QLabel#selectionPreview {
+    background: #f5f8fb;
+    border: 1px solid #e1e8ef;
+    border-radius: 12px;
+}
+QLabel#selectionPreview[empty="true"] {
+    border: 1px dashed #ccd7e2;
+}
+QLabel#selectionGps {
+    color: #31445a;
+    font-size: 13px;
+}
+QLabel#applyHint {
+    font-size: 12px;
+    padding: 2px 2px;
+}
+QLabel#applyHint[tone="info"] {
+    color: #617084;
+}
+QLabel#applyHint[tone="warning"] {
+    color: #8a5300;
+}
+QLabel#applyHint[tone="error"] {
+    color: #9b2c2c;
+}
+QPushButton#removeGpsButton {
+    background: #ffffff;
+    color: #b42f2f;
+    border: 1px solid #e3b3b3;
+    padding: 8px 14px;
+}
+QPushButton#removeGpsButton:hover {
+    background: #fdf1f1;
+    border-color: #c24141;
+}
+QPushButton#removeGpsButton:pressed {
+    background: #f9e2e2;
+}
+QPushButton#removeGpsButton:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
+}
 QLabel#loadingText {
     color: #556579;
     font-size: 12px;

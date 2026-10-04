@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.exiftool_wrapper import ExifToolWrapper
-from core.models import EmbeddedPreview
+from core.models import EmbeddedPreview, PhotoInfo
 from core.photo_loader import PhotoLoader
 from services.models import (
     ApplyPreparation,
@@ -17,6 +17,7 @@ from services.models import (
     WorkflowSession,
 )
 from services.photo_metadata_cache import PhotoMetadataCache
+from services.photo_service import load_source_photo_info
 from services.workflow_controller import (
     clear_gps_workflow,
     clear_source_workflow,
@@ -37,6 +38,12 @@ class PhotoWorkflowFacade:
         self.writer = writer or ExifToolWrapper()
         self.loader = loader or PhotoLoader(self.writer)
         self.metadata_cache = metadata_cache or PhotoMetadataCache()
+
+    def read_photo_info(self, path: Path) -> PhotoInfo:
+        """
+        Read one photo's metadata, for example to use its GPS location.
+        """
+        return load_source_photo_info(path, self.loader)
 
     def read_embedded_previews(self, paths: list[Path]) -> dict[Path, EmbeddedPreview]:
         """

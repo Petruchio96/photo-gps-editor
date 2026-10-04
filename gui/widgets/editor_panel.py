@@ -1,5 +1,9 @@
 """
-Editor panel UI builder.
+Inspector panel UI builder (the right side of the window).
+
+The photos selected in the grid are the photos being edited. This panel shows
+what is selected, holds the new location, and offers the two actions:
+Apply (the main action) and Remove GPS (destructive, so styled to stand apart).
 """
 
 from __future__ import annotations
@@ -8,17 +12,13 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QPushButton,
-    QRadioButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -26,10 +26,12 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
 
+SELECTION_PREVIEW_HEIGHT = 168
+
 
 def build_editor_panel(window: "MainWindow") -> QWidget:
     """
-    Create the right side panel for GPS source and selected-photo actions.
+    Create the right side panel: selection summary, new location, and actions.
     """
     panel = QFrame()
     panel.setObjectName("panel")
@@ -37,197 +39,111 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     layout.setContentsMargins(20, 20, 20, 20)
     layout.setSpacing(14)
 
-    inspector_title = QLabel("GPS Editor")
-    inspector_title.setObjectName("sectionTitle")
+    # --- What is selected -------------------------------------------------
+    window.selection_title_label = QLabel("No Photos Selected")
+    window.selection_title_label.setObjectName("sectionTitle")
+    window.selection_title_label.setWordWrap(True)
 
-    inspector_note = QLabel(
-        "Choose a source photo or enter coordinates manually, review the selected photos, and then write metadata with a clear overwrite check."
+    window.selection_preview = QLabel()
+    window.selection_preview.setObjectName("selectionPreview")
+    window.selection_preview.setAlignment(Qt.AlignCenter)
+    window.selection_preview.setFixedHeight(SELECTION_PREVIEW_HEIGHT)
+
+    window.selection_gps_label = QLabel()
+    window.selection_gps_label.setObjectName("selectionGps")
+    window.selection_gps_label.setWordWrap(True)
+    window.selection_gps_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+    window.copy_location_button = QPushButton("Copy")
+    window.copy_location_button.setProperty("tone", "neutral")
+    window.copy_location_button.setToolTip("Copy this photo's GPS coordinates")
+    window.copy_location_button.clicked.connect(window.copy_selected_photo_gps_coordinates)
+
+    window.use_location_button = QPushButton("Use This Location")
+    window.use_location_button.setProperty("tone", "neutral")
+    window.use_location_button.setToolTip(
+        "Put this photo's coordinates in New Location, ready to apply to other photos"
     )
-    inspector_note.setObjectName("sectionNote")
-    inspector_note.setWordWrap(True)
+    window.use_location_button.clicked.connect(window.use_selected_photo_location)
 
-    source_group = QGroupBox("GPS Source")
-    source_layout = QVBoxLayout(source_group)
-    source_layout.setSpacing(10)
+    selection_buttons = QHBoxLayout()
+    selection_buttons.setSpacing(10)
+    selection_buttons.addWidget(window.copy_location_button)
+    selection_buttons.addWidget(window.use_location_button)
+    selection_buttons.addStretch(1)
 
-    window.photo_source_radio = QRadioButton("Use Source Photo")
-    window.manual_source_radio = QRadioButton("Enter Coordinates Manually")
-    window.photo_source_radio.setChecked(True)
+    # --- New location -----------------------------------------------------
+    location_group = QGroupBox("New Location")
+    location_layout = QVBoxLayout(location_group)
+    location_layout.setSpacing(10)
 
-    window.source_mode_group = QButtonGroup(window)
-    window.source_mode_group.addButton(window.photo_source_radio)
-    window.source_mode_group.addButton(window.manual_source_radio)
-    window.photo_source_radio.toggled.connect(window._update_source_mode_ui)
-
-    source_mode_layout = QVBoxLayout()
-    source_mode_layout.setSpacing(6)
-    source_mode_layout.addWidget(window.photo_source_radio)
-    source_mode_layout.addWidget(window.manual_source_radio)
-
-    window.source_preview_stack = QStackedWidget()
-
-    empty_source_widget = QWidget()
-    empty_source_layout = QVBoxLayout(empty_source_widget)
-    empty_source_layout.setContentsMargins(0, 0, 0, 0)
-    empty_source_layout.setSpacing(8)
-
-    empty_source_label = QLabel(
-        "No source photo selected yet. Choose a photo to load its thumbnail and GPS coordinates here."
-    )
-    empty_source_label.setObjectName("sourceHint")
-    empty_source_label.setWordWrap(True)
-    empty_source_layout.addWidget(empty_source_label)
-
-    source_preview_widget = QWidget()
-    source_preview_layout = QVBoxLayout(source_preview_widget)
-    source_preview_layout.setContentsMargins(0, 0, 0, 0)
-    source_preview_layout.setSpacing(8)
-
-    window.source_thumbnail = QLabel()
-    window.source_thumbnail.setObjectName("sourceThumbnail")
-    window.source_thumbnail.setFixedSize(180, 180)
-    window.source_thumbnail.setAlignment(Qt.AlignCenter)
-
-    window.source_file_label = QLabel("No source photo selected")
-    window.source_file_label.setObjectName("sourceFileLabel")
-    window.source_file_label.setAlignment(Qt.AlignCenter)
-    window.source_file_label.setWordWrap(True)
-
-    source_preview_layout.addWidget(window.source_file_label)
-    source_preview_layout.addWidget(
-        window.source_thumbnail,
-        alignment=Qt.AlignCenter,
-    )
-
-    window.source_preview_stack.addWidget(empty_source_widget)
-    window.source_preview_stack.addWidget(source_preview_widget)
-
-    window.choose_source_button = QPushButton("Choose Source Photo")
-    window.choose_source_button.setObjectName("accentButton")
-    window.choose_source_button.clicked.connect(window.choose_source_photo)
-
-    window.clear_source_button = QPushButton("Clear Source")
-    window.clear_source_button.setProperty("tone", "neutral")
-    window.clear_source_button.setEnabled(False)
-    window.clear_source_button.clicked.connect(window.clear_source_photo)
-
-    photo_source_panel = QWidget()
-    photo_source_layout = QVBoxLayout(photo_source_panel)
-    photo_source_layout.setContentsMargins(0, 0, 0, 0)
-    photo_source_layout.setSpacing(10)
-    photo_source_layout.addWidget(window.source_preview_stack)
-
-    source_button_row = QHBoxLayout()
-    source_button_row.setSpacing(10)
-    source_button_row.addWidget(window.choose_source_button)
-    source_button_row.addWidget(window.clear_source_button)
-    photo_source_layout.addLayout(source_button_row)
-
-    window.manual_source_panel = QWidget()
-    manual_source_layout = QFormLayout(window.manual_source_panel)
-    manual_source_layout.setContentsMargins(0, 0, 0, 0)
-    manual_source_layout.setSpacing(10)
-
+    fields = QFormLayout()
+    fields.setSpacing(10)
     window.latitude_input = QLineEdit()
     window.longitude_input = QLineEdit()
-    window.latitude_input.setPlaceholderText("e.g. 80.0000")
-    window.longitude_input.setPlaceholderText("e.g. 100.0000")
+    window.latitude_input.setPlaceholderText("e.g. 40.5865 or 40° 35' 11\" N")
+    window.longitude_input.setPlaceholderText("e.g. -111.6558 or 111° 39' 21\" W")
     window.latitude_input.editingFinished.connect(window.validate_latitude_field)
     window.longitude_input.editingFinished.connect(window.validate_longitude_field)
-    window.latitude_input.textChanged.connect(
-        lambda text: window._handle_manual_coordinate_input_change(text)
+    window.latitude_input.textChanged.connect(window._handle_location_input_change)
+    window.longitude_input.textChanged.connect(window._handle_location_input_change)
+    fields.addRow("Latitude:", window.latitude_input)
+    fields.addRow("Longitude:", window.longitude_input)
+
+    window.paste_coordinates_button = QPushButton("Paste")
+    window.paste_coordinates_button.setProperty("tone", "neutral")
+    window.paste_coordinates_button.setToolTip("Paste coordinates copied from a map or another photo")
+    window.paste_coordinates_button.clicked.connect(window.paste_coordinates_from_clipboard)
+
+    window.location_from_photo_button = QPushButton("From a Photo…")
+    window.location_from_photo_button.setProperty("tone", "neutral")
+    window.location_from_photo_button.setToolTip(
+        "Choose any photo file and use its GPS coordinates"
     )
-    window.longitude_input.textChanged.connect(
-        lambda text: window._handle_manual_coordinate_input_change(text)
-    )
+    window.location_from_photo_button.clicked.connect(window.choose_location_from_photo)
 
-    window.clear_manual_coordinates_button = QPushButton("Clear Coordinates")
-    window.clear_manual_coordinates_button.setProperty("tone", "neutral")
-    window.clear_manual_coordinates_button.setEnabled(False)
-    window.clear_manual_coordinates_button.clicked.connect(
-        window.clear_manual_coordinates
-    )
+    window.clear_location_button = QPushButton("Clear")
+    window.clear_location_button.setProperty("tone", "neutral")
+    window.clear_location_button.setToolTip("Empty the latitude and longitude fields")
+    window.clear_location_button.clicked.connect(window.clear_location_fields)
 
-    window.paste_coordinates_button = QPushButton("Paste Coordinates from Clipboard")
-    window.paste_coordinates_button.setObjectName("accentButton")
-    window.paste_coordinates_button.clicked.connect(
-        window.paste_coordinates_from_clipboard
-    )
+    location_buttons = QHBoxLayout()
+    location_buttons.setSpacing(10)
+    location_buttons.addWidget(window.paste_coordinates_button)
+    location_buttons.addWidget(window.location_from_photo_button)
+    location_buttons.addWidget(window.clear_location_button)
 
-    manual_source_layout.addRow("Latitude:", window.latitude_input)
-    manual_source_layout.addRow("Longitude:", window.longitude_input)
-    manual_source_layout.addRow("", window.clear_manual_coordinates_button)
-    manual_source_layout.addRow("", window.paste_coordinates_button)
+    location_layout.addLayout(fields)
+    location_layout.addLayout(location_buttons)
 
-    window.source_mode_stack = QStackedWidget()
-    window.source_mode_stack.addWidget(photo_source_panel)
-    window.source_mode_stack.addWidget(window.manual_source_panel)
+    # --- Actions ----------------------------------------------------------
+    window.apply_hint_label = QLabel()
+    window.apply_hint_label.setObjectName("applyHint")
+    window.apply_hint_label.setWordWrap(True)
 
-    window.active_source_coordinates = QLabel("Source GPS Coordinates: Not set")
-    window.active_source_coordinates.setObjectName("sourceSummary")
-    window.active_source_coordinates.setWordWrap(True)
-
-    source_layout.addLayout(source_mode_layout)
-    source_layout.addWidget(window.source_mode_stack)
-    source_layout.addWidget(window.active_source_coordinates)
-
-    window.selected_photos_list = QListWidget()
-    window.selected_photos_list.setObjectName("selectedPhotosList")
-    window.selected_photos_list.setSelectionMode(QListWidget.ExtendedSelection)
-    window.selected_photos_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-    window.selected_photos_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    window.selected_photos_list.setMaximumHeight(124)
-    window.selected_photos_list.setMinimumHeight(124)
-    window.selected_photos_list.itemSelectionChanged.connect(
-        window.handle_target_list_selection_changed
-    )
-
-    window.selected_photos_empty_label = QLabel(
-        "Add photos from the browser to build an update list."
-    )
-    window.selected_photos_empty_label.setObjectName("selectedPhotosEmpty")
-    window.selected_photos_empty_label.setAlignment(Qt.AlignCenter)
-    window.selected_photos_empty_label.setWordWrap(True)
-
-    window.selected_photos_stack = QStackedWidget()
-    window.selected_photos_stack.addWidget(window.selected_photos_empty_label)
-    window.selected_photos_stack.addWidget(window.selected_photos_list)
-    window.selected_photos_stack.setMaximumHeight(124)
-    window.selected_photos_stack.setMinimumHeight(124)
-
-    window.selected_photos_title_label = QLabel(
-        "Selected Photos to Change GPS Coordinates"
-    )
-    window.selected_photos_title_label.setObjectName("sectionTitle")
-
-    window.remove_selected_photos_button = QPushButton("Remove Selected Photos")
-    window.remove_selected_photos_button.setProperty("tone", "neutral")
-    window.remove_selected_photos_button.setEnabled(False)
-    window.remove_selected_photos_button.clicked.connect(
-        window.remove_selected_photos_from_target_list
-    )
-
-    window.clear_selected_gps_button = QPushButton("Clear Coordinates from Photos")
-    window.clear_selected_gps_button.setProperty("tone", "neutral")
-    window.clear_selected_gps_button.setEnabled(False)
-    window.clear_selected_gps_button.clicked.connect(window.clear_selected_target_coordinates)
-
-    window.apply_button = QPushButton("Apply New GPS Coordinates to Photos")
-    window.apply_button.setObjectName("applyButton")
-    window.apply_button.setProperty("tone", "safe")
+    window.apply_button = QPushButton("Apply to Selected Photos")
+    window.apply_button.setObjectName("accentButton")
     window.apply_button.setEnabled(False)
-    window.apply_button.setMinimumHeight(40)
+    window.apply_button.setMinimumHeight(44)
     window.apply_button.clicked.connect(window.apply_coordinates_to_selected)
 
-    layout.addWidget(inspector_title)
-    layout.addWidget(inspector_note)
-    layout.addWidget(source_group)
-    layout.addWidget(window.selected_photos_title_label)
-    layout.addWidget(window.selected_photos_stack)
-    layout.addWidget(window.remove_selected_photos_button)
-    layout.addWidget(window.clear_selected_gps_button)
-    layout.addWidget(window.apply_button)
-    layout.addStretch(1)
+    window.remove_gps_button = QPushButton("Remove GPS")
+    window.remove_gps_button.setObjectName("removeGpsButton")
+    window.remove_gps_button.setEnabled(False)
+    window.remove_gps_button.setToolTip(
+        "Permanently delete the GPS coordinates stored in the selected photos"
+    )
+    window.remove_gps_button.clicked.connect(window.remove_gps_from_selected)
 
-    window._update_source_mode_ui()
+    layout.addWidget(window.selection_title_label)
+    layout.addWidget(window.selection_preview)
+    layout.addWidget(window.selection_gps_label)
+    layout.addLayout(selection_buttons)
+    layout.addSpacing(6)
+    layout.addWidget(location_group)
+    layout.addStretch(1)
+    layout.addWidget(window.apply_hint_label)
+    layout.addWidget(window.apply_button)
+    layout.addWidget(window.remove_gps_button)
+
     return panel

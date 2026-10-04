@@ -251,14 +251,26 @@ QListWidget#thumbnailGrid::item:hover {
     border-color: #d5e2ef;
 }
 QListWidget#thumbnailGrid::item:selected {
-    background: #dcebff;
-    border-color: #8cb7f0;
-    color: #0b2441;
+    background: #fff3e3;
+    border: 2px solid #d97706;
+    color: #4a2a00;
 }
 QLabel#thumbnailGroupHeader {
     color: #4d6177;
-    font-weight: 600;
+    font-weight: 700;
     padding-left: 2px;
+}
+QLabel#thumbnailGroupHeader[group="gps"],
+QLabel#groupDot[group="gps"] {
+    color: #2f7d4f;
+}
+QLabel#thumbnailGroupHeader[group="no_gps"],
+QLabel#groupDot[group="no_gps"] {
+    color: #a15c07;
+}
+QFrame#groupDivider {
+    background: #d6dfe8;
+    border: none;
 }
 QListWidget#thumbnailGrid QScrollBar:vertical,
 QListWidget#selectedPhotosList QScrollBar:vertical {
@@ -392,6 +404,93 @@ QPushButton#filterButton:checked {
     color: #ffffff;
     border-color: #26425f;
 }
+QPushButton#filterButton[filter="needs"]:checked {
+    background: #b45f06;
+    border-color: #b45f06;
+}
+QPushButton#filterButton[filter="has"]:checked {
+    background: #2f7d4f;
+    border-color: #2f7d4f;
+}
+QFrame#appHeader {
+    background: #26425f;
+    border-radius: 14px;
+}
+QLabel#appHeaderTitle {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: 700;
+}
+QLabel#appHeaderSubtitle {
+    color: #c9d7e6;
+    font-size: 12px;
+}
+QLabel#eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QLabel#eyebrow[tone="selection"] {
+    color: #b45f06;
+}
+QGroupBox#locationGroup {
+    background: #f4f8ff;
+    border: 1px solid #b9d0f5;
+}
+QGroupBox#locationGroup::title {
+    color: #1f5fc4;
+}
+QPushButton#pickButton {
+    background: #ffffff;
+    color: #1f5fc4;
+    border: 1px solid #8cb7f0;
+}
+QPushButton#pickButton:hover {
+    background: #e8f1ff;
+}
+QPushButton#pickButton:checked {
+    background: #1f6feb;
+    color: #ffffff;
+    border-color: #1f6feb;
+}
+QFrame#pickBanner {
+    background: #1f6feb;
+    border-radius: 10px;
+}
+QLabel#pickBannerText {
+    color: #ffffff;
+    font-weight: 600;
+}
+QPushButton#pickCancel {
+    background: #ffffff;
+    color: #1f5fc4;
+    border: none;
+    padding: 6px 14px;
+}
+QFrame#sourceCard {
+    background: #e3eeff;
+    border: 1px solid #8cb7f0;
+    border-radius: 10px;
+}
+QLabel#sourceCardTitle {
+    color: #17428a;
+    font-weight: 700;
+}
+QLabel#sourceCardDetail {
+    color: #31445a;
+    font-size: 12px;
+}
+QPushButton#sourceCardClear {
+    background: transparent;
+    border: none;
+    color: #31445a;
+    padding: 0px;
+    font-weight: 700;
+}
+QPushButton#sourceCardClear:hover {
+    background: #cfe0fb;
+    border-radius: 15px;
+}
 QLabel#selectionPreview {
     background: #f5f8fb;
     border: 1px solid #e1e8ef;
@@ -399,6 +498,10 @@ QLabel#selectionPreview {
 }
 QLabel#selectionPreview[empty="true"] {
     border: 1px dashed #ccd7e2;
+}
+QLabel#selectionPreview[empty="false"] {
+    background: #fff8ef;
+    border: 1px solid #f0c48a;
 }
 QLabel#selectionGps {
     color: #31445a;

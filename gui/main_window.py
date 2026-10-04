@@ -8,9 +8,10 @@ import html
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QSettings, Qt, QTimer
-from PySide6.QtGui import QAction, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -81,6 +82,9 @@ class MainWindow(
 
         self.session = WorkflowSession()
         self._is_splitting_manual_coordinates = False
+        # Where the New Location came from (a photo), and pick-mode state.
+        self._location_source = None
+        self._picking_location = False
         self._last_status_message = ""
         self._last_status_tone = "info"
         self._status_undo_link = False
@@ -107,6 +111,11 @@ class MainWindow(
         self._build_ui()
         self._build_menu_bar()
         self._build_loading_timers()
+
+        # Esc leaves Pick from Grid mode (only active while picking).
+        self._pick_escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        self._pick_escape_shortcut.setEnabled(False)
+        self._pick_escape_shortcut.activated.connect(self.stop_picking_location)
         self._apply_window_style()
         self._clipboard = self.clipboard()
         self._clipboard.dataChanged.connect(self._update_clipboard_buttons)
@@ -126,6 +135,8 @@ class MainWindow(
         self.select_button = QPushButton("Choose Photos")
         self.select_button.clicked.connect(self.select_photos)
 
+        outer_layout.addWidget(self._build_app_header())
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(build_browser_panel(self))
@@ -135,6 +146,30 @@ class MainWindow(
         splitter.setSizes([860, 420])
 
         outer_layout.addWidget(splitter, 1)
+
+    def _build_app_header(self) -> QFrame:
+        """
+        Slim navy bar across the top with the app icon and name.
+        """
+        header = QFrame()
+        header.setObjectName("appHeader")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(12)
+
+        icon = QLabel()
+        icon.setPixmap(QIcon(str(resource_path("assets/app_icon_128.png"))).pixmap(32, 32))
+        title = QLabel("Photo GPS Editor")
+        title.setObjectName("appHeaderTitle")
+        subtitle = QLabel("Select photos, set a location, apply.")
+        subtitle.setObjectName("appHeaderSubtitle")
+
+        layout.addWidget(icon)
+        layout.addWidget(title)
+        layout.addSpacing(8)
+        layout.addWidget(subtitle)
+        layout.addStretch(1)
+        return header
 
     def _build_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu("&File")

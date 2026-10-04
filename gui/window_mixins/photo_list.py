@@ -7,6 +7,7 @@ from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QListWidgetItem,
     QMenu,
@@ -215,6 +216,7 @@ class PhotoListMixin:
             self.list_widget.setUpdatesEnabled(True)
 
         self._apply_grid_filter()
+        self._refresh_source_marker()
         self.update_details_panel()
         self._start_thumbnail_job(pending)
 
@@ -331,6 +333,8 @@ class PhotoListMixin:
             item.setData(SHIMMER_ROLE, False)
             if item.isSelected():
                 refresh_preview = True
+            if path == self._location_source:
+                self._refresh_source_card()
 
         done = self._thumbnail_total - len(self._pending_thumbnail_items)
         self.loading_indicator.set_progress(
@@ -426,7 +430,7 @@ class PhotoListMixin:
         self.list_widget.addItem(item)
         self.list_widget.setItemWidget(
             item,
-            self._build_group_header_widget(title, with_divider=with_divider),
+            self._build_group_header_widget(title, with_divider=with_divider, group=group),
         )
         self._group_header_items.append(item)
         return item
@@ -442,7 +446,13 @@ class PhotoListMixin:
             item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.doItemsLayout()
 
-    def _build_group_header_widget(self, title: str, *, with_divider: bool) -> QWidget:
+    def _build_group_header_widget(
+        self,
+        title: str,
+        *,
+        with_divider: bool,
+        group: str,
+    ) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 4, 0, 0)
@@ -452,17 +462,27 @@ class PhotoListMixin:
         # group on the page goes without one.
         if with_divider:
             line = QFrame()
-            line.setFrameShape(QFrame.HLine)
-            line.setFrameShadow(QFrame.Plain)
+            line.setObjectName("groupDivider")
             line.setFixedHeight(1)
             layout.addWidget(line)
 
+        # Green for "has GPS", amber for "needs GPS" (see styles.py).
+        dot = QLabel("●")
+        dot.setObjectName("groupDot")
+        dot.setProperty("group", group)
         label = QLabel(title)
         label.setObjectName("thumbnailGroupHeader")
+        label.setProperty("group", group)
         label.setWordWrap(False)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        layout.addWidget(label)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addWidget(dot)
+        title_row.addWidget(label)
+        title_row.addStretch(1)
+        layout.addLayout(title_row)
         return widget
 
     def reselect_paths(self, paths_to_select: list[Path]) -> None:
@@ -501,12 +521,11 @@ class PhotoListMixin:
             lambda: self.copy_gps_coordinates(latitude, longitude)
         )
 
+        path = Path(item.data(THUMBNAIL_PATH_ROLE))
         use_action = QAction("Use This Location", self)
         use_action.setEnabled(has_gps)
-        use_action.setToolTip("Put these coordinates in New Location")
-        use_action.triggered.connect(
-            lambda: self.set_location_fields(f"{latitude:.6f}", f"{longitude:.6f}")
-        )
+        use_action.setToolTip("Put this photo's coordinates in New Location")
+        use_action.triggered.connect(lambda: self.use_location_from_path(path))
 
         menu.addAction(copy_action)
         menu.addAction(use_action)

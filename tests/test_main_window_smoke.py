@@ -9,12 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLabel, QListWidget, QMessageBox
 
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
 from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
-from gui.widgets.thumbnail_delegate import SHIMMER_ROLE  # noqa: F401  (kept for parity)
+from gui.widgets.thumbnail_delegate import SOURCE_ROLE
 from services.workflow_facade import PhotoWorkflowFacade
 
 
@@ -206,7 +207,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         )
         self.assertFalse(self.window.remove_gps_button.isEnabled())
         self.assertTrue(self.window.copy_location_button.isHidden())
-        self.assertTrue(self.window.use_location_button.isHidden())
+        self.assertTrue(self.window.source_card.isHidden())
+        self.assertTrue(self.window.pick_banner.isHidden())
         self.assertIn("2 photos loaded", self.window.browser_hint.text())
 
     def test_about_action_opens_versioned_dialog(self) -> None:
@@ -327,7 +329,7 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     # --- Inspector ------------------------------------------------------------
 
-    def test_single_photo_with_gps_offers_copy_and_use_location(self) -> None:
+    def test_single_photo_with_gps_offers_copy(self) -> None:
         self.gps_by_path[self.paths[0]] = (41.0, -112.0)
         self.window.populate_list()
 
@@ -337,21 +339,18 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.selection_gps_label.text(), "Current GPS: 41.000000, -112.000000")
         self.assertFalse(self.window.copy_location_button.isHidden())
         self.assertTrue(self.window.copy_location_button.isEnabled())
-        self.assertTrue(self.window.use_location_button.isEnabled())
         self.assertTrue(self.window.copy_action.isEnabled())
 
         self.window.copy_location_button.click()
         self.assertEqual(QApplication.clipboard().text(), "41.000000, -112.000000")
+        # Selecting a photo never fills New Location by itself.
+        self.assertIsNone(self._new_location())
 
-        self.window.use_location_button.click()
-        self.assertEqual(self._new_location(), (41.0, -112.0))
-        self.assertIn("Now select the photos to update", self.window.browser_hint.text())
-
-    def test_single_photo_without_gps_cannot_use_location(self) -> None:
+    def test_single_photo_without_gps_cannot_copy(self) -> None:
         self._select_paths([self.paths[0]])
 
         self.assertEqual(self.window.selection_gps_label.text(), "Current GPS: none")
-        self.assertFalse(self.window.use_location_button.isEnabled())
+        self.assertFalse(self.window.copy_location_button.isEnabled())
         self.assertFalse(self.window.copy_action.isEnabled())
 
     def test_multiple_selection_summarizes_gps(self) -> None:
@@ -372,7 +371,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.populate_list()
         self.window.select_all_photos()
         self.assertFalse(self.window.apply_button.isEnabled())
-        self.assertIn("Enter a new location", self.window.apply_hint_label.text())
+        self.assertIn("Set a new location", self.window.apply_hint_label.text())
 
         self._set_location(*self.location)
 
@@ -384,10 +383,112 @@ class MainWindowSmokeTests(unittest.TestCase):
         )
         self.assertEqual(self.window.apply_hint_label.property("tone"), "warning")
 
-    def test_context_menu_use_this_location_fills_fields(self) -> None:
-        self.window.set_location_fields("41.000000", "-112.000000")
+    # --- Location source: Pick from Grid, right-click, source card ---------
+
+    def _item_for(self, path: Path):
+        return self.window._grid_items_by_path[str(path)]
+
+    def _click_item(self, path: Path, button=Qt.LeftButton) -> None:
+        grid = self.window.list_widget
+        center = grid.visualItemRect(self._item_for(path)).center()
+        QTest.mouseClick(grid.viewport(), button, Qt.NoModifier, center)
+
+    def test_pick_from_grid_sets_source_without_changing_selection(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self._select_paths([self.paths[0]])
+
+        self.window.pick_location_button.click()
+        self.assertTrue(self.window.is_picking_location)
+        self.assertFalse(self.window.pick_banner.isHidden())
+
+        self._click_item(self.paths[1])
+
+        self.assertFalse(self.window.is_picking_location)
+        self.assertTrue(self.window.pick_banner.isHidden())
+        self.assertEqual(self._new_location(), (41.0, -112.0))
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+        self.assertFalse(self.window.source_card.isHidden())
+        self.assertEqual(self.window.source_card_title.text(), "From photo-two.jpg")
+        self.assertTrue(self._item_for(self.paths[1]).data(SOURCE_ROLE))
+        self.assertFalse(self._item_for(self.paths[0]).data(SOURCE_ROLE))
+
+    def test_picking_a_photo_without_gps_explains_and_keeps_picking(self) -> None:
+        self.window.start_picking_location()
+
+        self._click_item(self.paths[0])
+
+        self.assertTrue(self.window.is_picking_location)
+        self.assertIn("photo-one.jpg has no GPS", self.window.pick_banner_label.text())
+        self.assertIsNone(self._new_location())
+        self.assertEqual(self.window.get_selected_paths(), [])
+
+    def test_escape_and_cancel_stop_picking(self) -> None:
+        self.window.start_picking_location()
+        # Window shortcuts only reach the active window.
+        self.window.activateWindow()
+        QTest.qWaitForWindowActive(self.window)
+        self.window.list_widget.setFocus()
+        QTest.keyClick(self.window.list_widget, Qt.Key_Escape)
+        self.assertFalse(self.window.is_picking_location)
+
+        self.window.pick_location_button.click()
+        self.window.pick_cancel_button.click()
+        self.assertFalse(self.window.is_picking_location)
+        self.assertFalse(self.window.pick_location_button.isChecked())
+
+    def test_right_click_does_not_change_selection(self) -> None:
+        self._select_paths([self.paths[0]])
+
+        with patch.object(self.window, "show_context_menu"):
+            self._click_item(self.paths[1], Qt.RightButton)
+
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+    def test_context_menu_use_this_location_sets_source(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+
+        self.assertTrue(self.window.use_location_from_path(self.paths[1]))
 
         self.assertEqual(self._new_location(), (41.0, -112.0))
+        self.assertTrue(self._item_for(self.paths[1]).data(SOURCE_ROLE))
+        self.assertFalse(self.window.use_location_from_path(self.paths[0]))
+
+    def test_editing_fields_by_hand_drops_the_source(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.use_location_from_path(self.paths[1])
+
+        self.window.latitude_input.setText("41.5")
+
+        self.assertTrue(self.window.source_card.isHidden())
+        self.assertFalse(self._item_for(self.paths[1]).data(SOURCE_ROLE))
+
+    def test_source_card_clear_button_empties_location(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.use_location_from_path(self.paths[1])
+
+        self.window.source_card_clear.click()
+
+        self.assertIsNone(self._new_location())
+        self.assertTrue(self.window.source_card.isHidden())
+
+    def test_source_marker_survives_applying(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.use_location_from_path(self.paths[1])
+        self._select_paths([self.paths[0]])
+
+        self.window.apply_coordinates_to_selected()
+
+        self.assertEqual(self.window.exiftool.writes, [(self.paths[0], 41.0, -112.0)])
+        self.assertTrue(self._item_for(self.paths[1]).data(SOURCE_ROLE))
+
+    def test_grid_tiles_cannot_be_dragged_around(self) -> None:
+        self.assertEqual(self.window.list_widget.movement(), QListWidget.Static)
+        self.assertFalse(self.window.list_widget.dragEnabled())
 
     # --- New location fields ----------------------------------------------
 
@@ -459,6 +560,7 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertEqual(self._new_location(), self.location)
         self.assertIn("source.jpg", self.window.browser_hint.text())
+        self.assertEqual(self.window.source_card_title.text(), "From source.jpg")
 
     def test_location_from_a_photo_without_gps_explains(self) -> None:
         with patch.object(self.window, "_pick_photo_file", return_value=self.paths[0]):

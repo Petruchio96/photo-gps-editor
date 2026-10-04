@@ -23,6 +23,11 @@ from PySide6.QtWidgets import (
 # placeholder should be drawn.
 SHIMMER_ROLE = Qt.UserRole + 3
 
+# Item data role: True on the photo the New Location was taken from.
+SOURCE_ROLE = Qt.UserRole + 5
+
+SOURCE_COLOR = QColor("#1f6feb")
+
 # One sweep of the light band across a tile takes this long.
 SHIMMER_PERIOD_MS = 1200
 
@@ -42,6 +47,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option, index) -> None:
         super().paint(painter, option, index)
+        if index.data(SOURCE_ROLE):
+            _paint_source_marker(painter, option)
         if not index.data(SHIMMER_ROLE):
             return
 
@@ -85,3 +92,33 @@ def _placeholder_tile(icon_rect: QRectF) -> QRectF:
     height = min(icon_rect.height(), width * 2 / 3)
     top = icon_rect.top() + (icon_rect.height() - height) / 2
     return QRectF(icon_rect.left(), top, width, height)
+
+
+def _paint_source_marker(painter: QPainter, option) -> None:
+    """
+    Blue outline and a "SOURCE" label: this photo's location is the one in
+    New Location. Blue always means "where the location comes from".
+    """
+    rect = QRectF(option.rect).adjusted(3, 3, -3, -3)
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = painter.pen()
+    pen.setColor(SOURCE_COLOR)
+    pen.setWidthF(2.5)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(rect, 10, 10)
+
+    label = "SOURCE"
+    font = painter.font()
+    font.setPointSizeF(max(7.0, font.pointSizeF() - 2))
+    font.setBold(True)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    chip = QRectF(rect.left() + 6, rect.top() + 6, metrics.horizontalAdvance(label) + 12, metrics.height() + 4)
+    chip_path = QPainterPath()
+    chip_path.addRoundedRect(chip, 6, 6)
+    painter.fillPath(chip_path, SOURCE_COLOR)
+    painter.setPen(QColor("white"))
+    painter.drawText(chip, Qt.AlignCenter, label)
+    painter.restore()

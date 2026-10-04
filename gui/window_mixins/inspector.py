@@ -36,9 +36,7 @@ class InspectorMixin:
 
         single = state.selected_count == 1
         self.copy_location_button.setVisible(single)
-        self.use_location_button.setVisible(single)
         self.copy_location_button.setEnabled(state.can_use_location)
-        self.use_location_button.setEnabled(state.can_use_location)
 
         has_fields = bool(self.latitude_input.text().strip() or self.longitude_input.text().strip())
         self.clear_location_button.setEnabled(has_fields)

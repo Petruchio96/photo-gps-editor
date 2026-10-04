@@ -40,6 +40,11 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     layout.setSpacing(14)
 
     # --- What is selected -------------------------------------------------
+    # Orange throughout means "your selection: the photos to change".
+    selection_eyebrow = QLabel("PHOTOS TO CHANGE")
+    selection_eyebrow.setObjectName("eyebrow")
+    selection_eyebrow.setProperty("tone", "selection")
+
     window.selection_title_label = QLabel("No Photos Selected")
     window.selection_title_label.setObjectName("sectionTitle")
     window.selection_title_label.setWordWrap(True)
@@ -59,23 +64,54 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.copy_location_button.setToolTip("Copy this photo's GPS coordinates")
     window.copy_location_button.clicked.connect(window.copy_selected_photo_gps_coordinates)
 
-    window.use_location_button = QPushButton("Use This Location")
-    window.use_location_button.setProperty("tone", "neutral")
-    window.use_location_button.setToolTip(
-        "Put this photo's coordinates in New Location, ready to apply to other photos"
-    )
-    window.use_location_button.clicked.connect(window.use_selected_photo_location)
-
     selection_buttons = QHBoxLayout()
     selection_buttons.setSpacing(10)
     selection_buttons.addWidget(window.copy_location_button)
-    selection_buttons.addWidget(window.use_location_button)
     selection_buttons.addStretch(1)
 
     # --- New location -----------------------------------------------------
     location_group = QGroupBox("New Location")
+    location_group.setObjectName("locationGroup")
     location_layout = QVBoxLayout(location_group)
     location_layout.setSpacing(10)
+
+    # Pick a photo in the grid to take its location from ("eyedropper").
+    # Blue throughout means "where the location comes from".
+    window.pick_location_button = QPushButton("Pick from Grid")
+    window.pick_location_button.setObjectName("pickButton")
+    window.pick_location_button.setCheckable(True)
+    window.pick_location_button.setToolTip(
+        "Click this, then click a photo in the grid to use its location. "
+        "Your selection of photos to change is left alone."
+    )
+    window.pick_location_button.clicked.connect(window.toggle_picking_location)
+
+    # Shows which photo the location came from, when it came from one.
+    window.source_card = QFrame()
+    window.source_card.setObjectName("sourceCard")
+    source_card_layout = QHBoxLayout(window.source_card)
+    source_card_layout.setContentsMargins(10, 8, 6, 8)
+    source_card_layout.setSpacing(10)
+    window.source_card_thumbnail = QLabel()
+    window.source_card_thumbnail.setFixedSize(52, 52)
+    window.source_card_thumbnail.setAlignment(Qt.AlignCenter)
+    source_text = QVBoxLayout()
+    source_text.setSpacing(2)
+    window.source_card_title = QLabel()
+    window.source_card_title.setObjectName("sourceCardTitle")
+    window.source_card_detail = QLabel()
+    window.source_card_detail.setObjectName("sourceCardDetail")
+    source_text.addWidget(window.source_card_title)
+    source_text.addWidget(window.source_card_detail)
+    window.source_card_clear = QPushButton("✕")
+    window.source_card_clear.setObjectName("sourceCardClear")
+    window.source_card_clear.setToolTip("Clear the location")
+    window.source_card_clear.setFixedSize(30, 30)
+    window.source_card_clear.clicked.connect(window.clear_location_fields)
+    source_card_layout.addWidget(window.source_card_thumbnail)
+    source_card_layout.addLayout(source_text, 1)
+    source_card_layout.addWidget(window.source_card_clear, 0, Qt.AlignTop)
+    window.source_card.hide()
 
     fields = QFormLayout()
     fields.setSpacing(10)
@@ -113,6 +149,8 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     location_buttons.addWidget(window.location_from_photo_button)
     location_buttons.addWidget(window.clear_location_button)
 
+    location_layout.addWidget(window.pick_location_button)
+    location_layout.addWidget(window.source_card)
     location_layout.addLayout(fields)
     location_layout.addLayout(location_buttons)
 
@@ -135,6 +173,7 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     )
     window.remove_gps_button.clicked.connect(window.remove_gps_from_selected)
 
+    layout.addWidget(selection_eyebrow)
     layout.addWidget(window.selection_title_label)
     layout.addWidget(window.selection_preview)
     layout.addWidget(window.selection_gps_label)

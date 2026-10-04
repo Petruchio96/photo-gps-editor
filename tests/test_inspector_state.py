@@ -68,7 +68,7 @@ class InspectorStateTests(unittest.TestCase):
 
         self.assertFalse(result.can_apply)
         self.assertEqual(result.apply_hint_tone, "info")
-        self.assertIn("Enter a new location", result.apply_hint)
+        self.assertIn("Set a new location", result.apply_hint)
 
     def test_invalid_location_is_an_error(self) -> None:
         result = state([NO_GPS], "95", "10")

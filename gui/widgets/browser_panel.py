@@ -38,6 +38,35 @@ class ThumbnailGrid(QListWidget):
         # Shown in the middle of the grid when no photos are visible.
         self.empty_message = ""
 
+    def mousePressEvent(self, event) -> None:
+        # Pick mode: a click chooses the location source and never changes
+        # which photos are selected for updating.
+        if self._window.is_picking_location and event.button() == Qt.LeftButton:
+            self._window.pick_location_from_item(self.itemAt(event.position().toPoint()))
+            event.accept()
+            return
+        # Right-click opens the context menu for the photo under the cursor
+        # without changing the selection (Qt would normally select it).
+        if event.button() == Qt.RightButton:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        # Esc leaves pick mode when the grid has focus (the window-wide Esc
+        # shortcut covers the rest of the window).
+        if self._window.is_picking_location and event.key() == Qt.Key_Escape:
+            self._window.stop_picking_location()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if self._window.is_picking_location:
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def set_empty_message(self, message: str) -> None:
         if message != self.empty_message:
             self.empty_message = message
@@ -120,6 +149,7 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     for position, (key, text) in enumerate(GRID_FILTERS):
         button = QPushButton(text)
         button.setObjectName("filterButton")
+        button.setProperty("filter", key)
         button.setCheckable(True)
         button.setProperty(
             "segment",
@@ -132,6 +162,21 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.grid_filter_buttons["all"].setChecked(True)
     filter_row.addStretch(1)
 
+    # Banner shown while picking a location source from the grid.
+    window.pick_banner = QFrame()
+    window.pick_banner.setObjectName("pickBanner")
+    banner_layout = QHBoxLayout(window.pick_banner)
+    banner_layout.setContentsMargins(14, 8, 8, 8)
+    window.pick_banner_label = QLabel()
+    window.pick_banner_label.setObjectName("pickBannerText")
+    window.pick_banner_label.setWordWrap(True)
+    window.pick_cancel_button = QPushButton("Cancel")
+    window.pick_cancel_button.setObjectName("pickCancel")
+    window.pick_cancel_button.clicked.connect(window.stop_picking_location)
+    banner_layout.addWidget(window.pick_banner_label, 1)
+    banner_layout.addWidget(window.pick_cancel_button)
+    window.pick_banner.hide()
+
     window.list_widget = ThumbnailGrid(window)
     window.list_widget.setObjectName("thumbnailGrid")
     window.list_widget.setViewMode(QListWidget.IconMode)
@@ -142,6 +187,10 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.list_widget.setVerticalScrollMode(QListWidget.ScrollPerPixel)
     window.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     window.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
+    # Tiles stay in place: no dragging them around the grid.
+    window.list_widget.setMovement(QListWidget.Static)
+    window.list_widget.setDragEnabled(False)
+    window.list_widget.setDragDropMode(QListWidget.NoDragDrop)
     window.list_widget.itemSelectionChanged.connect(window.update_details_panel)
     window.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
     window.list_widget.customContextMenuRequested.connect(window.show_context_menu)
@@ -167,6 +216,7 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     layout.addWidget(section_heading)
     layout.addLayout(header_row)
     layout.addLayout(filter_row)
+    layout.addWidget(window.pick_banner)
     layout.addWidget(window.list_widget, 1)
     layout.addWidget(window.loading_indicator)
 

@@ -33,6 +33,11 @@ class CoordinateValidationTests(unittest.TestCase):
     def test_validate_coordinates_returns_pair(self) -> None:
         self.assertEqual(validate_coordinates("40.5", "-111.8"), (40.5, -111.8))
 
+    def test_validate_accepts_numbers_as_well_as_text(self) -> None:
+        self.assertEqual(validate_coordinates(40.5, -111.8), (40.5, -111.8))
+        with self.assertRaises(ValueError):
+            validate_latitude(91.0)
+
     def test_validate_coordinates_raises_for_non_numeric_values(self) -> None:
         with self.assertRaises(ValueError):
             validate_coordinates("north", "west")

@@ -37,6 +37,13 @@ class PhotoWorkflowFacade:
         self.loader = loader or PhotoLoader(self.writer)
         self.metadata_cache = metadata_cache or PhotoMetadataCache()
 
+    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, tuple[bytes, int]]:
+        """
+        Return {path: (JPEG bytes, EXIF orientation)} for RAW files' built-in
+        previews. Files without a preview are left out.
+        """
+        return self.writer.read_embedded_previews(paths)
+
     def refresh_photo_workflow(self, session: WorkflowSession) -> WorkflowSession:
         return refresh_photo_workflow(session, self.loader, self.metadata_cache)
 

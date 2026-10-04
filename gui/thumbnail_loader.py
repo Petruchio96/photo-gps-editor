@@ -10,21 +10,30 @@ Why this file exists:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
 from PIL import Image, UnidentifiedImageError
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QBuffer, QByteArray, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QIcon,
+    QImage,
     QImageReader,
     QPainter,
     QPainterPath,
     QPen,
     QPixmap,
+    QTransform,
 )
+
+from core.file_types import JPEG_EXTENSIONS, is_raw_file
+from core.runtime_paths import resource_path
+
+# Reads embedded RAW previews: list of paths -> {path: (JPEG bytes, EXIF orientation)}.
+type PreviewReader = Callable[[list[Path]], dict[Path, tuple[bytes, int]]]
 
 
 class ThumbnailLoader:
@@ -33,10 +42,12 @@ class ThumbnailLoader:
 
     Current behavior:
     1. JPG / JPEG files:
-       We try to open them with Pillow and build a real thumbnail.
-    2. Other supported files:
-       We return a simple fallback icon for now.
-       Later we can improve RAW preview support.
+       We decode a scaled-down copy of the image with Qt.
+    2. RAW files (CR2, CR3, DNG):
+       We use the JPEG preview the camera stored inside the file, read through
+       ExifTool, rotated to match the photo's orientation.
+    3. Anything else, or if the above fails:
+       We return a simple fallback icon.
     """
 
     BADGE_SIZE: Final[int] = 34
@@ -46,24 +57,33 @@ class ThumbnailLoader:
     BADGE_ICON_NUDGE_Y: Final[int] = -1
     MAX_CACHE_ENTRIES: Final[int] = 512
 
-    def __init__(self, thumbnail_size: int = 128) -> None:
+    def __init__(
+        self,
+        thumbnail_size: int = 128,
+        preview_reader: PreviewReader | None = None,
+    ) -> None:
         """
         Store the target thumbnail size in pixels.
 
         Args:
             thumbnail_size:
                 Maximum width and height for generated thumbnails.
+            preview_reader:
+                Reads embedded previews from RAW files. Without one, RAW files
+                get the fallback icon.
         """
         self.thumbnail_size = thumbnail_size
+        self.preview_reader = preview_reader
         self._icon_cache: dict[tuple[str, int | None, bool], QIcon] = {}
+        # RAW thumbnails read ahead of time by prefetch(), keyed like the icon
+        # cache but without the GPS flag. None means "no preview available".
+        self._raw_pixmaps: dict[tuple[str, int | None], QPixmap | None] = {}
 
         # Store the path to the overlay icon used for photos that already have
         # GPS metadata. Keeping this as a project asset makes the badge more
         # consistent and professional than drawing a temporary text marker.
-        self.overlay_icon_path = (
-            Path(__file__).resolve().parent.parent
-            / "assets"
-            / "satellite_overlay_icon_128 (croped).png"
+        self.overlay_icon_path = resource_path(
+            Path("assets") / "satellite_overlay_icon_128 (croped).png"
         )
         self._fallback_icon = self._build_fallback_icon()
         self._badge_overlay_pixmap = self._load_trimmed_overlay_pixmap()
@@ -95,16 +115,107 @@ class ThumbnailLoader:
         if cached_icon is not None:
             return cached_icon
 
-        if path.suffix.lower() in {".jpg", ".jpeg"}:
+        real_pixmap = None
+        if path.suffix.lower() in JPEG_EXTENSIONS:
             real_pixmap = self._load_jpeg_thumbnail(path)
-            if real_pixmap is not None:
-                icon = self._build_badged_icon(QIcon(real_pixmap)) if has_gps else QIcon(real_pixmap)
-                self._cache_icon(cache_key, icon)
-                return icon
+        elif is_raw_file(path):
+            real_pixmap = self._load_raw_thumbnail(path)
+
+        if real_pixmap is not None:
+            icon = self._build_badged_icon(QIcon(real_pixmap)) if has_gps else QIcon(real_pixmap)
+            self._cache_icon(cache_key, icon)
+            return icon
 
         fallback_icon = self._gps_fallback_icon if has_gps else self._fallback_icon
         self._cache_icon(cache_key, fallback_icon)
         return fallback_icon
+
+    def prefetch(self, paths: list[Path]) -> None:
+        """
+        Read RAW thumbnails for many files at once, before load_icon() is called.
+
+        One ExifTool command for the whole batch is about twice as fast as one
+        per file. JPEGs and files already cached are skipped.
+        """
+        if self.preview_reader is None:
+            return
+
+        needed: dict[Path, tuple[str, int | None]] = {}
+        for path in paths:
+            if not is_raw_file(path):
+                continue
+            key = self._build_raw_key(path)
+            if key not in self._raw_pixmaps:
+                needed[path] = key
+
+        if not needed:
+            return
+
+        try:
+            previews = self.preview_reader(list(needed))
+        except Exception:
+            # Thumbnails are a convenience; fall back to icons on any failure.
+            previews = {}
+
+        if len(self._raw_pixmaps) + len(needed) > self.MAX_CACHE_ENTRIES:
+            self._raw_pixmaps.clear()
+
+        for path, key in needed.items():
+            preview = previews.get(path)
+            self._raw_pixmaps[key] = (
+                self._preview_to_pixmap(*preview) if preview is not None else None
+            )
+
+    def _load_raw_thumbnail(self, path: Path) -> QPixmap | None:
+        """
+        Build a thumbnail from the JPEG preview embedded in a RAW file.
+        """
+        key = self._build_raw_key(path)
+        if key not in self._raw_pixmaps:
+            self.prefetch([path])
+        return self._raw_pixmaps.get(key)
+
+    def _preview_to_pixmap(self, jpeg_bytes: bytes, orientation: int) -> QPixmap | None:
+        """
+        Decode an embedded preview at thumbnail size and rotate it upright.
+
+        Args:
+            jpeg_bytes:
+                The embedded JPEG preview.
+            orientation:
+                The RAW file's EXIF orientation, 1-8 (1 = already upright).
+        """
+        buffer = QBuffer()
+        buffer.setData(QByteArray(jpeg_bytes))
+        buffer.open(QBuffer.ReadOnly)
+        reader = QImageReader(buffer)
+        # Use the RAW file's orientation, not any tag inside the preview.
+        reader.setAutoTransform(False)
+
+        size = reader.size()
+        if size.isValid():
+            scaled_size = QSize(size)
+            scaled_size.scale(
+                self.thumbnail_size,
+                self.thumbnail_size,
+                Qt.KeepAspectRatio,
+            )
+            reader.setScaledSize(scaled_size)
+
+        image = reader.read()
+        if image.isNull():
+            return None
+
+        image = _apply_exif_orientation(image, orientation)
+        pixmap = QPixmap.fromImage(image)
+        return None if pixmap.isNull() else pixmap
+
+    def _build_raw_key(self, path: Path) -> tuple[str, int | None]:
+        try:
+            modified_at = path.stat().st_mtime_ns
+        except OSError:
+            modified_at = None
+        return (str(path), modified_at)
 
     def _cache_icon(self, cache_key: tuple[str, int | None, bool], icon: QIcon) -> None:
         """
@@ -322,3 +433,21 @@ class ThumbnailLoader:
         pixmap = QPixmap(self.thumbnail_size, self.thumbnail_size)
         pixmap.fill(Qt.lightGray)
         return QIcon(pixmap)
+
+
+def _apply_exif_orientation(image: QImage, orientation: int) -> QImage:
+    """
+    Rotate and/or mirror an image according to an EXIF orientation value.
+
+    EXIF orientations: 1 normal, 2 mirrored, 3 rotated 180, 4 flipped
+    vertically, 5 mirrored + rotated 270, 6 rotated 90, 7 mirrored + rotated
+    90, 8 rotated 270 (all rotations clockwise).
+    """
+    mirror = orientation in (2, 4, 5, 7)
+    rotation = {3: 180, 4: 180, 5: 270, 6: 90, 7: 90, 8: 270}.get(orientation, 0)
+
+    if mirror:
+        image = image.transformed(QTransform().scale(-1, 1))
+    if rotation:
+        image = image.transformed(QTransform().rotate(rotation))
+    return image

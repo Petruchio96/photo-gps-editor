@@ -1,3 +1,4 @@
+import base64
 import json
 import subprocess
 import tempfile
@@ -136,6 +137,50 @@ class ExifToolWrapperTests(unittest.TestCase):
         self.assertIn("-GPSLongitudeRef=", arguments)
         self.assertEqual(arguments[-1], str(Path("/tmp/photo.jpg")))
 
+    def test_read_embedded_previews_tries_small_previews_first(self) -> None:
+        small = Path("/tmp/small.cr2")
+        large_only = Path("/tmp/large-only.dng")
+        none = Path("/tmp/none.cr3")
+        encoded = "base64:" + base64.b64encode(b"jpeg-bytes").decode()
+        replies = [
+            # ThumbnailImage pass: only one file has a small preview.
+            (0, json.dumps([
+                {"SourceFile": str(small), "ThumbnailImage": encoded, "Orientation": 6},
+                {"SourceFile": str(large_only), "Orientation": 8},
+                {"SourceFile": str(none)},
+            ]), ""),
+            # PreviewImage pass: asked only for the two remaining files.
+            (0, json.dumps([
+                {"SourceFile": str(large_only), "PreviewImage": encoded, "Orientation": 8},
+                {"SourceFile": str(none)},
+            ]), ""),
+            # JpgFromRaw pass: an error status must not discard anything.
+            (1, json.dumps([{"SourceFile": str(none)}]), "Error: bad file"),
+        ]
+        wrapper = ExifToolWrapper("exiftool")
+        wrapper._execute = MagicMock(side_effect=replies)
+
+        previews = wrapper.read_embedded_previews([small, large_only, none])
+
+        self.assertEqual(
+            previews,
+            {small: (b"jpeg-bytes", 6), large_only: (b"jpeg-bytes", 8)},
+        )
+        calls = wrapper._execute.call_args_list
+        self.assertIn("-ThumbnailImage", calls[0].args[0])
+        self.assertEqual(calls[1].args[0][-2:], [str(large_only), str(none)])
+        self.assertIn("-JpgFromRaw", calls[2].args[0])
+        self.assertEqual(calls[2].args[0][-1], str(none))
+
+    def test_read_embedded_preview_defaults_bad_orientation_to_normal(self) -> None:
+        photo = Path("/tmp/photo.cr2")
+        encoded = "base64:" + base64.b64encode(b"jpeg").decode()
+        wrapper, _ = self._wrapper_with_reply(
+            output=json.dumps([{"SourceFile": str(photo), "ThumbnailImage": encoded, "Orientation": 42}])
+        )
+
+        self.assertEqual(wrapper.read_embedded_preview(photo), (b"jpeg", 1))
+
     def test_keep_backups_leaves_out_overwrite_original(self) -> None:
         wrapper, execute_mock = self._wrapper_with_reply()
 
@@ -236,6 +281,25 @@ class ExifToolWrapperIntegrationTests(unittest.TestCase):
         self.wrapper.write_gps(photo, 1.0, 2.0)
 
         self.assertFalse(photo.with_name("no-backup.jpg_original").exists())
+
+    def test_reads_embedded_thumbnail_and_orientation(self) -> None:
+        from PIL import Image
+
+        photo = self._make_photo("with-thumbnail.jpg")
+        thumbnail = self.temp_path / "thumb.jpg"
+        Image.new("RGB", (16, 8), "red").save(thumbnail)
+        # Embed a thumbnail and mark the photo as "rotated 90 degrees".
+        self.wrapper._run(
+            ["-overwrite_original", f"-ThumbnailImage<={thumbnail}", "-Orientation#=6"],
+            [photo],
+            "Failed to add test thumbnail.",
+        )
+
+        jpeg_bytes, orientation = self.wrapper.read_embedded_preview(photo)
+
+        self.assertEqual(jpeg_bytes, thumbnail.read_bytes())
+        self.assertEqual(orientation, 6)
+        self.assertIsNone(self.wrapper.read_embedded_preview(self._make_photo("plain.jpg")))
 
     def test_one_process_serves_many_commands(self) -> None:
         photos = [self._make_photo(f"photo_{index}.jpg") for index in range(5)]

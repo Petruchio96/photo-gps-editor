@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.file_types import file_dialog_patterns
 from core.runtime_paths import resource_path
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
@@ -65,7 +66,10 @@ class MainWindow(
         self.workflow = PhotoWorkflowFacade()
         self.exiftool = self.workflow.writer
         self.loader = self.workflow.loader
-        self.thumbnail_loader = ThumbnailLoader(thumbnail_size=128)
+        self.thumbnail_loader = ThumbnailLoader(
+            thumbnail_size=128,
+            preview_reader=self.workflow.read_embedded_previews,
+        )
 
         self.session = WorkflowSession()
         self._is_splitting_manual_coordinates = False
@@ -333,7 +337,7 @@ class MainWindow(
         return pictures_dir if pictures_dir.exists() else Path.home()
 
     def _photo_file_filter(self) -> str:
-        return "Images (*.jpg *.JPG *.jpeg *.JPEG *.cr2 *.CR2 *.cr3 *.CR3 *.dng *.DNG)"
+        return f"Images ({file_dialog_patterns()})"
 
     def _pick_photo_files(self, title: str) -> list[Path]:
         file_paths, _ = QFileDialog.getOpenFileNames(

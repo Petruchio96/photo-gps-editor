@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -6,9 +7,10 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
-from gui.thumbnail_loader import ThumbnailLoader
+from gui.thumbnail_loader import ThumbnailLoader, _apply_exif_orientation
 
 
 class ThumbnailLoaderTests(unittest.TestCase):
@@ -53,6 +55,101 @@ class ThumbnailLoaderTests(unittest.TestCase):
             icon = loader.load_icon(path, has_gps=True)
 
         self.assertFalse(icon.isNull())
+
+
+def _jpeg_bytes(width: int, height: int) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color="green").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+class RawThumbnailTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.folder = Path(temp_dir.name)
+
+    def _raw_file(self, name: str) -> Path:
+        path = self.folder / name
+        path.write_bytes(b"raw")
+        return path
+
+    def test_raw_thumbnail_uses_embedded_preview_rotated_upright(self) -> None:
+        raw = self._raw_file("portrait.cr2")
+        reader_calls = []
+
+        def reader(paths):
+            reader_calls.append(list(paths))
+            return {raw: (_jpeg_bytes(120, 80), 6)}
+
+        loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
+        pixmap = loader.load_icon(raw).pixmap(64, 64)
+
+        # A 120x80 landscape preview with orientation 6 becomes portrait.
+        self.assertLess(pixmap.width(), pixmap.height())
+        self.assertEqual(reader_calls, [[raw]])
+
+    def test_prefetch_reads_all_raw_files_in_one_call_and_caches(self) -> None:
+        first = self._raw_file("first.dng")
+        second = self._raw_file("second.cr3")
+        jpeg = self.folder / "photo.jpg"
+        Image.new("RGB", (10, 10)).save(jpeg)
+        reader_calls = []
+
+        def reader(paths):
+            reader_calls.append(list(paths))
+            return {path: (_jpeg_bytes(40, 30), 1) for path in paths}
+
+        loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
+        loader.prefetch([first, jpeg, second])
+        loader.load_icon(first)
+        loader.load_icon(second)
+        loader.prefetch([first, second])
+
+        self.assertEqual(reader_calls, [[first, second]])
+
+    def test_raw_file_without_preview_or_reader_failure_gets_fallback_icon(self) -> None:
+        raw = self._raw_file("photo.cr2")
+
+        def failing_reader(paths):
+            raise RuntimeError("ExifTool stopped unexpectedly.")
+
+        for reader in (lambda paths: {}, failing_reader):
+            loader = ThumbnailLoader(thumbnail_size=64, preview_reader=reader)
+            icon = loader.load_icon(raw)
+            self.assertFalse(icon.isNull())
+
+    def test_exif_orientations(self) -> None:
+        image = QImage(4, 2, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        image.setPixelColor(0, 0, QColor("red"))  # marker in the top-left corner
+
+        def red_corner(result: QImage) -> tuple[int, int]:
+            for x in range(result.width()):
+                for y in range(result.height()):
+                    if result.pixelColor(x, y) == QColor("red"):
+                        return x, y
+            raise AssertionError("marker lost")
+
+        expected = {
+            1: ((4, 2), (0, 0)),
+            2: ((4, 2), (3, 0)),
+            3: ((4, 2), (3, 1)),
+            4: ((4, 2), (0, 1)),
+            5: ((2, 4), (0, 0)),
+            6: ((2, 4), (1, 0)),
+            7: ((2, 4), (1, 3)),
+            8: ((2, 4), (0, 3)),
+        }
+        for orientation, (size, corner) in expected.items():
+            result = _apply_exif_orientation(image, orientation)
+            with self.subTest(orientation=orientation):
+                self.assertEqual((result.width(), result.height()), size)
+                self.assertEqual(red_corner(result), corner)
 
 
 if __name__ == "__main__":

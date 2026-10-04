@@ -56,6 +56,9 @@ class FakePhotoLoader:
 
 
 class FakeThumbnailLoader:
+    def prefetch(self, paths: list[Path]) -> None:
+        pass
+
     def load_icon(self, path: Path, has_gps: bool = False) -> QIcon:
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.blue if has_gps else Qt.lightGray)

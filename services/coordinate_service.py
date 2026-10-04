@@ -85,8 +85,8 @@ def _parse_coordinate_value(text: str, *, is_latitude: bool) -> float:
         value *= sign
 
     if is_latitude:
-        return validate_latitude(str(value))
-    return validate_longitude(str(value))
+        return validate_latitude(value)
+    return validate_longitude(value)
 
 
 def parse_latitude_text(text: str) -> float:

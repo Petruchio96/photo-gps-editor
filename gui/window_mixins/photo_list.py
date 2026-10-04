@@ -97,6 +97,11 @@ class PhotoListMixin:
             gps_header_added = False
             gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
 
+            # Read all RAW previews in one batch before building the items.
+            self.thumbnail_loader.prefetch(
+                [item_data.path for item_data in self.session.thumbnail_items]
+            )
+
             for item_data in self.session.thumbnail_items:
                 if item_data.has_gps and not gps_header_added:
                     self._build_gps_group_header_item(gps_count)

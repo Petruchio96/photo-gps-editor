@@ -5,8 +5,8 @@ Why this file exists:
     We do not want GUI code directly calling subprocess commands all over the
     project. This wrapper gives us one clean place to:
     1. check whether ExifTool exists
-    2. read GPS metadata from files
-    3. later, write GPS metadata back to files
+    2. read and write GPS metadata
+    3. read the preview images embedded in RAW files, for thumbnails
 
 Why ExifTool:
     ExifTool is the most reliable way to work with metadata across JPG and many
@@ -22,6 +22,7 @@ Why one long-running ExifTool process:
 from __future__ import annotations
 
 import atexit
+import base64
 import itertools
 import json
 import queue
@@ -33,6 +34,11 @@ from typing import IO
 
 from core.process_guard import NO_WINDOW_FLAGS, start_guarded_process, stop_process_tree
 from core.runtime_paths import default_exiftool_executable
+
+# Embedded JPEG previews to try for RAW thumbnails, smallest/fastest first.
+# Many RAW files have a small ThumbnailImage; others only have a larger
+# PreviewImage or a full-size JpgFromRaw.
+EMBEDDED_PREVIEW_TAGS = ("ThumbnailImage", "PreviewImage", "JpgFromRaw")
 
 # How long to wait for one ExifTool command before giving up. Large RAW batches
 # can take a while, so this is generous; it only guards against a hung process.
@@ -157,6 +163,79 @@ class ExifToolWrapper:
             }
 
         return gps_by_path
+
+    def read_embedded_preview(self, path: Path) -> tuple[bytes, int] | None:
+        """
+        Read the JPEG preview stored inside one RAW file, for a thumbnail.
+
+        Returns:
+            (JPEG bytes, EXIF orientation), or None if there is no preview.
+            See read_embedded_previews() for details.
+        """
+        return self.read_embedded_previews([path]).get(path)
+
+    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, tuple[bytes, int]]:
+        """
+        Read the JPEG previews stored inside RAW files, for thumbnails.
+
+        Uses one ExifTool command per preview type rather than one per file,
+        which roughly halves the time for large batches. Small previews are
+        tried first; only files without one are asked for a larger preview.
+
+        Returns:
+            {path: (JPEG bytes, EXIF orientation)} for every file that has an
+            embedded preview. Files without one, or that cannot be read, are
+            left out. The orientation (1-8, 1 = normal) describes how the
+            photo must be rotated or flipped for display; embedded previews
+            are stored unrotated.
+        """
+        previews: dict[Path, tuple[bytes, int]] = {}
+        remaining = list(paths)
+
+        for tag in EMBEDDED_PREVIEW_TAGS:
+            if not remaining:
+                break
+
+            # With -json, "-b" returns binary data as "base64:..." text, which
+            # travels safely through the text connection to ExifTool. The exit
+            # status is ignored: one unreadable file should not cost the rest
+            # their thumbnails, and missing files simply get no preview.
+            _, output, _ = self._execute(
+                [
+                    "-charset",
+                    "filename=utf8",
+                    "-json",
+                    "-b",
+                    "-n",
+                    f"-{tag}",
+                    "-Orientation",
+                    *[str(path) for path in remaining],
+                ]
+            )
+            try:
+                records = json.loads(output) if output.strip() else []
+            except json.JSONDecodeError:
+                records = []
+
+            for record in records:
+                source_file = record.get("SourceFile")
+                value = record.get(tag)
+                if source_file is None or not isinstance(value, str):
+                    continue
+                if not value.startswith("base64:"):
+                    continue
+
+                orientation = record.get("Orientation")
+                if not isinstance(orientation, int) or not 1 <= orientation <= 8:
+                    orientation = 1
+                previews[Path(source_file)] = (
+                    base64.b64decode(value[len("base64:"):]),
+                    orientation,
+                )
+
+            remaining = [path for path in remaining if path not in previews]
+
+        return previews
 
     def write_gps(self, path: Path, latitude: float, longitude: float) -> None:
         """

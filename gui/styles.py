@@ -350,6 +350,22 @@ QLabel#statusCard[tone="info"] {
     color: #21476b;
     border-color: #d6e1ec;
 }
+QLabel#loadingText {
+    color: #556579;
+    font-size: 12px;
+}
+QProgressBar#loadingBar {
+    background: #e3e9f0;
+    border: none;
+    border-radius: 3px;
+}
+QProgressBar#loadingBar::chunk {
+    background: #d97706;
+    border-radius: 3px;
+}
+QPushButton#loadingCancel {
+    padding: 4px 12px;
+}
 QSplitter::handle {
     background: transparent;
     width: 10px;

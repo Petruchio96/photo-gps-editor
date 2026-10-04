@@ -47,6 +47,9 @@ EMBEDDED_PREVIEW_TAGS = ("ThumbnailImage", "PreviewImage", "JpgFromRaw")
 # request (see read_gps_many). Entries are removed as soon as they are used.
 MAX_REMEMBERED_THUMBNAILS = 2048
 
+# Marker for "no remembered entry", distinct from None ("has no thumbnail").
+_NOT_REMEMBERED = object()
+
 # How long to wait for one ExifTool command before giving up. Large RAW batches
 # can take a while, so this is generous; it only guards against a hung process.
 COMMAND_TIMEOUT_SECONDS = 300
@@ -246,9 +249,13 @@ class ExifToolWrapper:
 
         for path in paths:
             key = _file_key(path)
-            if key is None or key not in self._remembered_thumbnails:
+            if key is None:
                 continue
-            remembered = self._remembered_thumbnails.pop(key)
+            # A single pop() (not "in" then pop) stays correct if the GPS read
+            # on another thread changes the dictionary at the same time.
+            remembered = self._remembered_thumbnails.pop(key, _NOT_REMEMBERED)
+            if remembered is _NOT_REMEMBERED:
+                continue
             if remembered is None:
                 known_without_thumbnail.add(path)
             else:
@@ -363,8 +370,16 @@ class ExifToolWrapper:
 
         Safe to call more than once. A later command starts a new process.
         """
-        with self._lock:
-            self._stop_process()
+        # If a background thread is in the middle of a long command, don't
+        # wait for it forever (this also runs at app exit): stop the process
+        # without the lock, which makes that command fail promptly.
+        if self._lock.acquire(timeout=2):
+            try:
+                self._stop_process()
+            finally:
+                self._lock.release()
+        elif self._process is not None:
+            stop_process_tree(self._process)
 
     def __enter__(self) -> ExifToolWrapper:
         return self

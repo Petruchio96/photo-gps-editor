@@ -218,6 +218,7 @@ class PhotoListMixin:
         self._apply_grid_filter()
         self._refresh_source_marker()
         self._refresh_pick_marks()
+        self._apply_pick_filter_rules()
         self.update_details_panel()
         self._start_thumbnail_job(pending)
 
@@ -241,8 +242,10 @@ class PhotoListMixin:
                 has_gps = item.data(THUMBNAIL_LATITUDE_ROLE) is not None
                 hidden = not (show_gps if has_gps else show_no_gps)
                 item.setHidden(hidden)
-                if hidden:
-                    # Hidden photos are never acted on, so don't keep them selected.
+                if hidden and not self._picking_location:
+                    # Hidden photos are never acted on, so don't keep them
+                    # selected. While picking a location, the filter is only
+                    # temporary, so the photos to change stay selected.
                     item.setSelected(False)
 
         for header in self._group_header_items:
@@ -255,8 +258,10 @@ class PhotoListMixin:
         any_visible = any(not item.isHidden() for item in self._photo_items())
         if any_visible:
             message = ""
+        elif self._picking_location:
+            message = 'Click "Choose Photos" to select a location'
         elif not self._grid_items_by_path:
-            message = "No photos yet. Use Choose Photos to add some."
+            message = 'Click "Choose Photos" to add photos to change location'
         elif self._grid_filter == "needs":
             message = "No photos need GPS. Every photo shown here has coordinates."
         else:
@@ -267,10 +272,13 @@ class PhotoListMixin:
         return list(self._grid_items_by_path.values())
 
     def _selected_photo_items(self) -> list[QListWidgetItem]:
+        # Photos hidden by the Show filter don't count, except while picking a
+        # location, when the filter is temporary and the selection is kept.
         return [
             item
             for item in self.list_widget.selectedItems()
-            if item.data(THUMBNAIL_PATH_ROLE) is not None and not item.isHidden()
+            if item.data(THUMBNAIL_PATH_ROLE) is not None
+            and (self._picking_location or not item.isHidden())
         ]
 
     def _start_thumbnail_job(self, pending: list[tuple[Path, QListWidgetItem, bool]]) -> None:

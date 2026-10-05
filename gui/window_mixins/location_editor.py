@@ -34,7 +34,7 @@ from services.coordinate_service import (
 
 PICK_PROMPT = (
     "Click a photo on the left to copy its location. "
-    "Photos without GPS are dimmed. Press Esc or Cancel to stop."
+    "Only photos with GPS can be picked. Press Esc or Cancel to stop."
 )
 
 
@@ -139,9 +139,9 @@ class LocationEditorMixin:
         Photos, Remove from List, and this button (which reads "Cancel").
         """
         self._picking_location = True
-        if self._grid_filter == "needs":
-            # Every photo shown would be unpickable.
-            self.set_grid_filter("all")
+        # Remember the Show filter, to put it back when picking ends.
+        self._filter_before_pick = self._grid_filter
+        self._apply_pick_filter_rules()
 
         self.pick_location_button.setChecked(True)
         self.pick_location_button.setText("Cancel")
@@ -154,6 +154,7 @@ class LocationEditorMixin:
 
     def stop_picking_location(self) -> None:
         self._picking_location = False
+        self._pick_hides_all_filter = False
         self.pick_location_button.setChecked(False)
         self.pick_location_button.setText(PICK_BUTTON_TEXT)
         self.pick_banner.hide()
@@ -168,8 +169,18 @@ class LocationEditorMixin:
             self.location_from_photo_button,
             self.source_card_clear,
             self.grid_filter_buttons["needs"],
+            self.grid_filter_buttons["all"],
         ):
             widget.setEnabled(True)
+
+        # Back to the Show filter used before picking, ready to select the
+        # photos to change.
+        previous_filter = self._filter_before_pick or self._grid_filter
+        self._filter_before_pick = None
+        if previous_filter != self._grid_filter:
+            self.set_grid_filter(previous_filter)
+        else:
+            self._apply_grid_filter()
         self.update_details_panel()
 
     def pick_location_from_item(self, item: QListWidgetItem | None) -> None:
@@ -186,6 +197,37 @@ class LocationEditorMixin:
 
         if self.use_location_from_path(Path(path_text)):
             self.stop_picking_location()
+
+    def _apply_pick_filter_rules(self) -> None:
+        """
+        While picking, show the photos that can be picked.
+
+        - Every loaded photo has GPS: keep All or Has GPS (switch Needs GPS
+          to All).
+        - Some or none have GPS: show Has GPS and disable All, so only
+          pickable photos are shown.
+
+        Runs when picking starts and whenever the photos change while picking.
+        """
+        if not self._picking_location:
+            return
+
+        total = len(self.session.thumbnail_items)
+        with_gps = sum(1 for item in self.session.thumbnail_items if item.has_gps)
+        self._pick_hides_all_filter = total > 0 and with_gps < total
+
+        if self._pick_hides_all_filter:
+            wanted = "has"
+        elif self._grid_filter in ("all", "has"):
+            wanted = self._grid_filter
+        else:
+            wanted = "all"
+
+        if wanted != self._grid_filter:
+            self.set_grid_filter(wanted)
+        else:
+            self._apply_grid_filter()
+        self._apply_pick_mode_lock()
 
     def _refresh_pick_marks(self) -> None:
         """
@@ -205,6 +247,9 @@ class LocationEditorMixin:
         """
         if not self._picking_location:
             return
+
+        # "All" is also off when some photos lack GPS (see _apply_pick_filter_rules).
+        self.grid_filter_buttons["all"].setEnabled(not self._pick_hides_all_filter)
 
         for widget in (
             self.select_all_button,

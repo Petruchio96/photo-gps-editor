@@ -85,6 +85,9 @@ class MainWindow(
         # Where the New Location came from (a photo), and pick-mode state.
         self._location_source = None
         self._picking_location = False
+        self._filter_before_pick = None
+        # While picking: True when some photos lack GPS, so "All" is disabled.
+        self._pick_hides_all_filter = False
         self._last_status_message = ""
         self._last_status_tone = "info"
         self._status_undo_link = False

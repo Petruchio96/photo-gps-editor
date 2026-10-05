@@ -50,6 +50,11 @@ class ThumbnailDelegate(QStyledItemDelegate):
         self.phase = (self.phase + elapsed_ms / SHIMMER_PERIOD_MS) % 1.0
 
     def paint(self, painter: QPainter, option, index) -> None:
+        # Qt still asks to paint items hidden by the Show filter, with an empty
+        # rectangle at the top-left corner; drawing markers there leaves a
+        # stray chip in the corner of the grid.
+        if option.rect.isEmpty():
+            return
         super().paint(painter, option, index)
         if index.data(PICK_DISABLED_ROLE):
             _paint_unpickable(painter, option)

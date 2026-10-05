@@ -6,21 +6,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import QItemSelectionModel, QPoint, QRect, QSignalBlocker, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
+    QRubberBand,
     QVBoxLayout,
     QWidget,
 )
 
 from gui.widgets.loading_indicator import LoadingIndicator
 from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, ThumbnailDelegate
+from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
 
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
@@ -28,8 +32,20 @@ if TYPE_CHECKING:
 
 class ThumbnailGrid(QListWidget):
     """
-    QListWidget variant that lets the window keep full-width section rows sized
-    correctly after the icon grid is resized.
+    The photo grid, with click-to-add selection.
+
+    Selection rules (the photos selected are the photos to change):
+        - Click (or Ctrl+click) a photo: add it, or remove it if selected.
+        - Shift+click: add every photo shown between the last clicked photo
+          and this one (photos hidden by the Show filter are skipped).
+        - Drag a box from empty space: add the photos inside it.
+        - Click empty space: nothing. Ctrl+A: select every photo shown.
+        - Arrow keys move the focus without changing the selection; Space
+          adds or removes the focused photo.
+    Pick mode and right-click are handled separately and never change the
+    selection.
+
+    It also keeps full-width section rows sized correctly after resizing.
     """
 
     def __init__(self, window: "MainWindow") -> None:
@@ -37,6 +53,14 @@ class ThumbnailGrid(QListWidget):
         self._window = window
         # Shown in the middle of the grid when no photos are visible.
         self.empty_message = ""
+        # Shift+click ranges start here: the path of the last photo clicked.
+        self._anchor_path: str | None = None
+        # Drag-box state.
+        self._band: QRubberBand | None = None
+        self._band_origin: QPoint | None = None
+        self._band_base: set[str] = set()
+
+    # --- Mouse --------------------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
         # Pick mode: a click chooses the location source and never changes
@@ -50,15 +74,55 @@ class ThumbnailGrid(QListWidget):
         if event.button() == Qt.RightButton:
             event.accept()
             return
-        super().mousePressEvent(event)
+        if event.button() != Qt.LeftButton:
+            super().mousePressEvent(event)
+            return
+
+        position = event.position().toPoint()
+        item = self._photo_item_at(position)
+        self.setFocus(Qt.MouseFocusReason)
+        if item is None:
+            # Empty space (or a heading): keep the selection; maybe a drag box.
+            self._band_origin = position
+            self._band_base = self._selected_path_set()
+        elif event.modifiers() & Qt.ShiftModifier:
+            self._add_range_to(item)
+        else:
+            self._toggle(item)
+        event.accept()
 
     def mouseMoveEvent(self, event) -> None:
+        position = event.position().toPoint()
         # While picking, show a "not allowed" cursor over dimmed photos.
         if self._window.is_picking_location:
-            item = self.itemAt(event.position().toPoint())
+            item = self.itemAt(position)
             unpickable = item is not None and item.data(PICK_DISABLED_ROLE)
             self.viewport().setCursor(Qt.ForbiddenCursor if unpickable else Qt.CrossCursor)
+            event.accept()
+            return
+        if self._band_origin is not None and event.buttons() & Qt.LeftButton:
+            self._update_band(position)
+            event.accept()
+            return
         super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            # Our press handling already decided the selection; Qt's release
+            # logic would otherwise collapse it to a single photo.
+            self._end_band()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if self._window.is_picking_location or event.button() != Qt.LeftButton:
+            event.accept()
+            return
+        # A double-click is two clicks: treat the second one like a click.
+        self.mousePressEvent(event)
+
+    # --- Keyboard -----------------------------------------------------------
 
     def keyPressEvent(self, event) -> None:
         # Esc leaves pick mode when the grid has focus (the window-wide Esc
@@ -67,13 +131,130 @@ class ThumbnailGrid(QListWidget):
             self._window.stop_picking_location()
             event.accept()
             return
-        super().keyPressEvent(event)
-
-    def mouseDoubleClickEvent(self, event) -> None:
-        if self._window.is_picking_location:
+        if event.matches(QKeySequence.StandardKey.SelectAll):
+            if not self._window.is_picking_location:
+                # Only photos currently shown, like the Select All button.
+                self._window.select_all_photos()
             event.accept()
             return
-        super().mouseDoubleClickEvent(event)
+        if event.key() == Qt.Key_Space and not self._window.is_picking_location:
+            item = self.currentItem()
+            if item is not None and item.data(THUMBNAIL_PATH_ROLE) is not None and not item.isHidden():
+                self._toggle(item)
+            event.accept()
+            return
+        if event.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
+                           Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown):
+            # Move the focus only; never replace the selection.
+            index = self.moveCursor(self._cursor_action_for(event.key()), event.modifiers())
+            if index.isValid():
+                self.selectionModel().setCurrentIndex(index, QItemSelectionModel.NoUpdate)
+                self.scrollTo(index)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    @staticmethod
+    def _cursor_action_for(key):
+        return {
+            Qt.Key_Left: QAbstractItemView.MoveLeft,
+            Qt.Key_Right: QAbstractItemView.MoveRight,
+            Qt.Key_Up: QAbstractItemView.MoveUp,
+            Qt.Key_Down: QAbstractItemView.MoveDown,
+            Qt.Key_Home: QAbstractItemView.MoveHome,
+            Qt.Key_End: QAbstractItemView.MoveEnd,
+            Qt.Key_PageUp: QAbstractItemView.MovePageUp,
+            Qt.Key_PageDown: QAbstractItemView.MovePageDown,
+        }[key]
+
+    # --- Selection helpers ---------------------------------------------------
+
+    def _photo_item_at(self, position: QPoint) -> QListWidgetItem | None:
+        item = self.itemAt(position)
+        if item is None or item.isHidden() or item.data(THUMBNAIL_PATH_ROLE) is None:
+            return None
+        return item
+
+    def _visible_photo_items(self) -> list[QListWidgetItem]:
+        # Rows are in on-screen order (no-GPS group first, then GPS group).
+        return [
+            self.item(row)
+            for row in range(self.count())
+            if self.item(row).data(THUMBNAIL_PATH_ROLE) is not None and not self.item(row).isHidden()
+        ]
+
+    def _selected_path_set(self) -> set[str]:
+        return {
+            item.data(THUMBNAIL_PATH_ROLE)
+            for item in self.selectedItems()
+            if item.data(THUMBNAIL_PATH_ROLE) is not None
+        }
+
+    def _toggle(self, item: QListWidgetItem) -> None:
+        self._anchor_path = item.data(THUMBNAIL_PATH_ROLE)
+        self.setCurrentItem(item, QItemSelectionModel.NoUpdate)
+        self._set_selected([item], not item.isSelected())
+
+    def _add_range_to(self, item: QListWidgetItem) -> None:
+        items = self._visible_photo_items()
+        anchor = next(
+            (candidate for candidate in items if candidate.data(THUMBNAIL_PATH_ROLE) == self._anchor_path),
+            None,
+        )
+        self.setCurrentItem(item, QItemSelectionModel.NoUpdate)
+        if anchor is None:
+            # No starting photo (or it is hidden): just add this photo.
+            self._anchor_path = item.data(THUMBNAIL_PATH_ROLE)
+            self._set_selected([item], True)
+            return
+        first, last = sorted((items.index(anchor), items.index(item)))
+        self._set_selected(items[first:last + 1], True)
+
+    def _set_selected(self, items: list[QListWidgetItem], selected: bool) -> None:
+        """
+        Change several items at once, then update the window once.
+        """
+        changed = False
+        with QSignalBlocker(self):
+            for item in items:
+                if item.isSelected() != selected:
+                    item.setSelected(selected)
+                    changed = True
+        if changed:
+            self.viewport().update()
+            self._window.update_details_panel()
+
+    def _update_band(self, position: QPoint) -> None:
+        rect = QRect(self._band_origin, position).normalized()
+        if self._band is None:
+            if rect.width() < 4 and rect.height() < 4:
+                return  # Not a drag yet, just a slightly wobbly click.
+            self._band = QRubberBand(QRubberBand.Rectangle, self.viewport())
+        self._band.setGeometry(rect)
+        self._band.show()
+
+        # Selection = what was selected before the drag + photos in the box.
+        changed = False
+        with QSignalBlocker(self):
+            for item in self._visible_photo_items():
+                wanted = (
+                    item.data(THUMBNAIL_PATH_ROLE) in self._band_base
+                    or self.visualItemRect(item).intersects(rect)
+                )
+                if item.isSelected() != wanted:
+                    item.setSelected(wanted)
+                    changed = True
+        if changed:
+            self.viewport().update()
+            self._window.update_details_panel()
+
+    def _end_band(self) -> None:
+        if self._band is not None:
+            self._band.hide()
+            self._band.deleteLater()
+            self._band = None
+        self._band_origin = None
+        self._band_base = set()
 
     def set_empty_message(self, message: str) -> None:
         if message != self.empty_message:

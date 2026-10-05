@@ -121,6 +121,7 @@ class PhotoListMixin:
             new_session.source_photo_info = self.session.source_photo_info
             new_session.source_photo_path = self.session.source_photo_path
             self.session = new_session
+            self._choose_default_grid_filter()
             self._render_current_photo_session()
 
         def failed(exc: BaseException) -> None:
@@ -222,6 +223,23 @@ class PhotoListMixin:
         self.update_details_panel()
         self._start_thumbnail_job(pending)
 
+    def _choose_default_grid_filter(self) -> None:
+        """
+        Newly loaded photos open on "Needs GPS", since those are the photos
+        to work on, or on "All" when every photo already has GPS.
+        """
+        needs_gps = any(
+            info.current_latitude is None or info.current_longitude is None
+            for info in self.session.loaded_photos
+        )
+        default = "needs" if needs_gps else "all"
+        if self._picking_location:
+            # Pick mode decides the filter for now; use this one afterwards.
+            self._filter_before_pick = default
+            return
+        self._grid_filter = default
+        self.grid_filter_buttons[default].setChecked(True)
+
     def set_grid_filter(self, key: str) -> None:
         """
         Show all photos, only those needing GPS, or only those that have it.
@@ -274,11 +292,11 @@ class PhotoListMixin:
     def _selected_photo_items(self) -> list[QListWidgetItem]:
         # Photos hidden by the Show filter don't count, except while picking a
         # location, when the filter is temporary and the selection is kept.
+        # Listed in on-screen order, not the order they were clicked.
         return [
             item
-            for item in self.list_widget.selectedItems()
-            if item.data(THUMBNAIL_PATH_ROLE) is not None
-            and (self._picking_location or not item.isHidden())
+            for item in self._grid_items_by_path.values()
+            if item.isSelected() and (self._picking_location or not item.isHidden())
         ]
 
     def _start_thumbnail_job(self, pending: list[tuple[Path, QListWidgetItem, bool]]) -> None:

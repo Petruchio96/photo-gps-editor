@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem
+from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem, QMessageBox
 
 from core.models import GpsCoordinates
 from gui.presenters.inspector_state import format_coordinates
@@ -98,13 +98,17 @@ class LocationEditorMixin:
 
         info = self.workflow.read_photo_info(path)
         if info.gps_error:
-            self._set_status_message(
-                f"Could not read GPS from {path.name}: {info.gps_error}",
-                "error",
-            )
+            dialog = QMessageBox(self)
+            dialog.setIcon(QMessageBox.Warning)
+            dialog.setWindowTitle("Could Not Read Photo")
+            dialog.setText(f"Could not read GPS from {path.name}:\n{info.gps_error}")
+            dialog.setStandardButtons(QMessageBox.Ok)
+            dialog.exec()
             return
         if info.current_latitude is None or info.current_longitude is None:
-            self._set_status_message(f"{path.name} has no GPS coordinates.", "error")
+            # No GPS, or only half of it (latitude without longitude, or the
+            # reverse): nothing usable to copy.
+            self._show_no_gps_message()
             return
 
         self.set_location_fields(
@@ -117,6 +121,14 @@ class LocationEditorMixin:
             f"{format_coordinates(GpsCoordinates(info.current_latitude, info.current_longitude))}.",
             "success",
         )
+
+    def _show_no_gps_message(self) -> None:
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setWindowTitle("No GPS Coordinates")
+        dialog.setText("Selected Photo has no GPS Coordinates")
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec()
 
     # --- Copy from Photo on Left (pick mode) ----------------------------------
 

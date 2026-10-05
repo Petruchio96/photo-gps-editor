@@ -10,7 +10,7 @@ Why a delegate:
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,15 @@ from PySide6.QtWidgets import (
 # Item data role: True while an item's thumbnail is still loading and its
 # placeholder should be drawn.
 SHIMMER_ROLE = Qt.UserRole + 3
+
+# Item data role: True on the photo the New Location was taken from.
+SOURCE_ROLE = Qt.UserRole + 5
+
+# Item data role: True while picking a location, on photos that cannot be
+# picked because they have no GPS. They are drawn dimmed with "No GPS".
+PICK_DISABLED_ROLE = Qt.UserRole + 6
+
+SOURCE_COLOR = QColor("#1f6feb")
 
 # One sweep of the light band across a tile takes this long.
 SHIMMER_PERIOD_MS = 1200
@@ -41,7 +50,16 @@ class ThumbnailDelegate(QStyledItemDelegate):
         self.phase = (self.phase + elapsed_ms / SHIMMER_PERIOD_MS) % 1.0
 
     def paint(self, painter: QPainter, option, index) -> None:
+        # Qt still asks to paint items hidden by the Show filter, with an empty
+        # rectangle at the top-left corner; drawing markers there leaves a
+        # stray chip in the corner of the grid.
+        if option.rect.isEmpty():
+            return
         super().paint(painter, option, index)
+        if index.data(PICK_DISABLED_ROLE):
+            _paint_unpickable(painter, option)
+        if index.data(SOURCE_ROLE):
+            _paint_source_marker(painter, option)
         if not index.data(SHIMMER_ROLE):
             return
 
@@ -85,3 +103,58 @@ def _placeholder_tile(icon_rect: QRectF) -> QRectF:
     height = min(icon_rect.height(), width * 2 / 3)
     top = icon_rect.top() + (icon_rect.height() - height) / 2
     return QRectF(icon_rect.left(), top, width, height)
+
+
+def _paint_source_marker(painter: QPainter, option) -> None:
+    """
+    Blue outline and a "SOURCE" label: this photo's location is the one in
+    New Location. Blue always means "where the location comes from".
+    """
+    rect = QRectF(option.rect).adjusted(3, 3, -3, -3)
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = painter.pen()
+    pen.setColor(SOURCE_COLOR)
+    pen.setWidthF(2.5)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(rect, 10, 10)
+
+    label = "SOURCE"
+    font = painter.font()
+    font.setPointSizeF(max(7.0, font.pointSizeF() - 2))
+    font.setBold(True)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    chip = QRectF(rect.left() + 6, rect.top() + 6, metrics.horizontalAdvance(label) + 12, metrics.height() + 4)
+    chip_path = QPainterPath()
+    chip_path.addRoundedRect(chip, 6, 6)
+    painter.fillPath(chip_path, SOURCE_COLOR)
+    painter.setPen(QColor("white"))
+    painter.drawText(chip, Qt.AlignCenter, label)
+    painter.restore()
+
+
+def _paint_unpickable(painter: QPainter, option) -> None:
+    """
+    Wash out a photo that cannot be picked (no GPS) and label it "No GPS".
+    """
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    rect = QRectF(option.rect)
+    painter.fillRect(rect, QColor(244, 246, 249, 205))
+
+    label = "No GPS"
+    font = painter.font()
+    font.setBold(True)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    chip = QRectF(0, 0, metrics.horizontalAdvance(label) + 16, metrics.height() + 6)
+    chip.moveCenter(rect.center() - QPointF(0, rect.height() * 0.12))
+    chip_path = QPainterPath()
+    chip_path.addRoundedRect(chip, 8, 8)
+    painter.fillPath(chip_path, QColor("#8c9aa8"))
+    painter.setPen(QColor("white"))
+    painter.drawText(chip, Qt.AlignCenter, label)
+    painter.restore()
+

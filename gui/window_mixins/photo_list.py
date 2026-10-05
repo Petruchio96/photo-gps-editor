@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSignalBlocker, QSize, Qt
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QListWidgetItem,
     QMenu,
@@ -23,6 +24,8 @@ from services.models import WorkflowSession
 THUMBNAIL_PATH_ROLE = Qt.UserRole
 THUMBNAIL_LATITUDE_ROLE = Qt.UserRole + 1
 THUMBNAIL_LONGITUDE_ROLE = Qt.UserRole + 2
+# On group heading items: "no_gps" or "gps", so the Show filter can hide them.
+GROUP_HEADER_ROLE = Qt.UserRole + 4
 THUMBNAIL_ITEM_SIZE = QSize(170, 190)
 GPS_HEADER_HEIGHT = 52
 GPS_HEADER_MIN_WIDTH = THUMBNAIL_ITEM_SIZE.width()
@@ -40,19 +43,15 @@ SHIMMER_FRAME_MS = 40
 
 
 class PhotoListMixin:
-    def add_selected_photos_to_target_list(self) -> None:
-        staged_paths = list(self.session.target_paths)
-
-        for path in self.get_selected_paths():
-            if path not in staged_paths:
-                staged_paths.append(path)
-
-        self.session.target_paths = staged_paths
-        self.list_widget.clearSelection()
-        self.update_details_panel()
-
     def select_all_photos(self) -> None:
-        self.list_widget.selectAll()
+        """
+        Select every photo currently shown (photos hidden by Show are skipped).
+        """
+        with QSignalBlocker(self.list_widget):
+            self.list_widget.clearSelection()
+            for item in self._photo_items():
+                if not item.isHidden():
+                    item.setSelected(True)
         self.update_details_panel()
 
     def clear_photo_selection(self) -> None:
@@ -122,6 +121,7 @@ class PhotoListMixin:
             new_session.source_photo_info = self.session.source_photo_info
             new_session.source_photo_path = self.session.source_photo_path
             self.session = new_session
+            self._choose_default_grid_filter()
             self._render_current_photo_session()
 
         def failed(exc: BaseException) -> None:
@@ -173,6 +173,7 @@ class PhotoListMixin:
         try:
             self.list_widget.clear()
             self._group_header_items = []
+            self._grid_items_by_path = {}
             gps_header_added = False
             gps_count = sum(1 for item_data in self.session.thumbnail_items if item_data.has_gps)
             no_gps_count = len(self.session.thumbnail_items) - gps_count
@@ -182,6 +183,7 @@ class PhotoListMixin:
                 self._build_group_header_item(
                     f"Photos without GPS Coordinates ({no_gps_count})",
                     with_divider=False,
+                    group="no_gps",
                 )
 
             for item_data in self.session.thumbnail_items:
@@ -189,6 +191,7 @@ class PhotoListMixin:
                     self._build_group_header_item(
                         f"Photos with GPS Coordinates ({gps_count})",
                         with_divider=True,
+                        group="gps",
                     )
                     gps_header_added = True
 
@@ -204,6 +207,7 @@ class PhotoListMixin:
                 if icon is None:
                     pending.append((path, item, item_data.has_gps))
                 item.setData(THUMBNAIL_PATH_ROLE, str(path))
+                self._grid_items_by_path[str(path)] = item
                 item.setData(THUMBNAIL_LATITUDE_ROLE, item_data.latitude)
                 item.setData(THUMBNAIL_LONGITUDE_ROLE, item_data.longitude)
                 item.setToolTip(item_data.tooltip)
@@ -212,10 +216,88 @@ class PhotoListMixin:
         finally:
             self.list_widget.setUpdatesEnabled(True)
 
-        self._refresh_source_preview()
+        self._apply_grid_filter()
+        self._refresh_source_marker()
+        self._refresh_pick_marks()
+        self._apply_pick_filter_rules()
         self.update_details_panel()
-        self._update_selection_metrics()
         self._start_thumbnail_job(pending)
+
+    def _choose_default_grid_filter(self) -> None:
+        """
+        Newly loaded photos open on "Needs GPS", since those are the photos
+        to work on, or on "All" when every photo already has GPS.
+        """
+        needs_gps = any(
+            info.current_latitude is None or info.current_longitude is None
+            for info in self.session.loaded_photos
+        )
+        default = "needs" if needs_gps else "all"
+        if self._picking_location:
+            # Pick mode decides the filter for now; use this one afterwards.
+            self._filter_before_pick = default
+            return
+        self._grid_filter = default
+        self.grid_filter_buttons[default].setChecked(True)
+
+    def set_grid_filter(self, key: str) -> None:
+        """
+        Show all photos, only those needing GPS, or only those that have it.
+        """
+        self._grid_filter = key
+        button = self.grid_filter_buttons.get(key)
+        if button is not None and not button.isChecked():
+            button.setChecked(True)
+        self._apply_grid_filter()
+        self.update_details_panel()
+
+    def _apply_grid_filter(self) -> None:
+        show_no_gps = self._grid_filter in ("all", "needs")
+        show_gps = self._grid_filter in ("all", "has")
+
+        with QSignalBlocker(self.list_widget):
+            for item in self._photo_items():
+                has_gps = item.data(THUMBNAIL_LATITUDE_ROLE) is not None
+                hidden = not (show_gps if has_gps else show_no_gps)
+                item.setHidden(hidden)
+                if hidden and not self._picking_location:
+                    # Hidden photos are never acted on, so don't keep them
+                    # selected. While picking a location, the filter is only
+                    # temporary, so the photos to change stay selected.
+                    item.setSelected(False)
+
+        for header in self._group_header_items:
+            group = header.data(GROUP_HEADER_ROLE)
+            header.setHidden(not (show_gps if group == "gps" else show_no_gps))
+
+        self._refresh_thumbnail_group_header_sizes()
+
+        # Say why the grid is empty instead of showing a blank box.
+        any_visible = any(not item.isHidden() for item in self._photo_items())
+        if any_visible:
+            message = ""
+        elif self._picking_location:
+            message = 'Click "Choose Photos" to select a location'
+        elif not self._grid_items_by_path:
+            message = 'Click "Choose Photos" to add photos to change location'
+        elif self._grid_filter == "needs":
+            message = "No photos need GPS. Every photo shown here has coordinates."
+        else:
+            message = "None of these photos have GPS yet."
+        self.list_widget.set_empty_message(message)
+
+    def _photo_items(self) -> list[QListWidgetItem]:
+        return list(self._grid_items_by_path.values())
+
+    def _selected_photo_items(self) -> list[QListWidgetItem]:
+        # Photos hidden by the Show filter don't count, except while picking a
+        # location, when the filter is temporary and the selection is kept.
+        # Listed in on-screen order, not the order they were clicked.
+        return [
+            item
+            for item in self._grid_items_by_path.values()
+            if item.isSelected() and (self._picking_location or not item.isHidden())
+        ]
 
     def _start_thumbnail_job(self, pending: list[tuple[Path, QListWidgetItem, bool]]) -> None:
         """
@@ -268,7 +350,7 @@ class PhotoListMixin:
         if generation != self._thumbnail_generation:
             return
 
-        refresh_source = False
+        refresh_preview = False
         for path, image in images.items():
             entry = self._pending_thumbnail_items.pop(str(path), None)
             if entry is None:
@@ -276,8 +358,10 @@ class PhotoListMixin:
             item, has_gps = entry
             item.setIcon(self.thumbnail_loader.icon_from_image(path, has_gps, image))
             item.setData(SHIMMER_ROLE, False)
-            if path == self.session.source_photo_path:
-                refresh_source = True
+            if item.isSelected():
+                refresh_preview = True
+            if path == self._location_source:
+                self._refresh_source_card()
 
         done = self._thumbnail_total - len(self._pending_thumbnail_items)
         self.loading_indicator.set_progress(
@@ -287,8 +371,9 @@ class PhotoListMixin:
         )
         if not self._pending_thumbnail_items:
             self._stop_thumbnail_animation()
-        if refresh_source:
-            self._refresh_source_preview()
+        if refresh_preview:
+            # A selected photo's thumbnail arrived: update the inspector preview.
+            self._refresh_selection_preview()
 
     def _thumbnail_job_finished(self, generation: int) -> None:
         if generation != self._thumbnail_generation:
@@ -350,21 +435,29 @@ class PhotoListMixin:
         return self._blank_icon
 
     def get_selected_paths(self) -> list[Path]:
-        selected_items = self.list_widget.selectedItems()
+        """
+        The photos to act on: selected and currently shown in the grid.
+        """
         return [
-            Path(path_text)
-            for item in selected_items
-            if (path_text := item.data(THUMBNAIL_PATH_ROLE)) is not None
+            Path(item.data(THUMBNAIL_PATH_ROLE))
+            for item in self._selected_photo_items()
         ]
 
-    def _build_group_header_item(self, title: str, *, with_divider: bool) -> QListWidgetItem:
+    def _build_group_header_item(
+        self,
+        title: str,
+        *,
+        with_divider: bool,
+        group: str,
+    ) -> QListWidgetItem:
         item = QListWidgetItem()
         item.setFlags(Qt.NoItemFlags)
+        item.setData(GROUP_HEADER_ROLE, group)
         item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.addItem(item)
         self.list_widget.setItemWidget(
             item,
-            self._build_group_header_widget(title, with_divider=with_divider),
+            self._build_group_header_widget(title, with_divider=with_divider, group=group),
         )
         self._group_header_items.append(item)
         return item
@@ -380,7 +473,13 @@ class PhotoListMixin:
             item.setSizeHint(self._thumbnail_group_header_size())
         self.list_widget.doItemsLayout()
 
-    def _build_group_header_widget(self, title: str, *, with_divider: bool) -> QWidget:
+    def _build_group_header_widget(
+        self,
+        title: str,
+        *,
+        with_divider: bool,
+        group: str,
+    ) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 4, 0, 0)
@@ -390,17 +489,27 @@ class PhotoListMixin:
         # group on the page goes without one.
         if with_divider:
             line = QFrame()
-            line.setFrameShape(QFrame.HLine)
-            line.setFrameShadow(QFrame.Plain)
+            line.setObjectName("groupDivider")
             line.setFixedHeight(1)
             layout.addWidget(line)
 
+        # Green for "has GPS", amber for "needs GPS" (see styles.py).
+        dot = QLabel("●")
+        dot.setObjectName("groupDot")
+        dot.setProperty("group", group)
         label = QLabel(title)
         label.setObjectName("thumbnailGroupHeader")
+        label.setProperty("group", group)
         label.setWordWrap(False)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        layout.addWidget(label)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addWidget(dot)
+        title_row.addWidget(label)
+        title_row.addStretch(1)
+        layout.addLayout(title_row)
         return widget
 
     def reselect_paths(self, paths_to_select: list[Path]) -> None:
@@ -431,13 +540,22 @@ class PhotoListMixin:
 
         menu = QMenu(self)
 
+        has_gps = latitude is not None and longitude is not None
+
         copy_action = QAction("Copy GPS Coordinates", self)
-        copy_action.setEnabled(latitude is not None and longitude is not None)
+        copy_action.setEnabled(has_gps)
         copy_action.triggered.connect(
             lambda: self.copy_gps_coordinates(latitude, longitude)
         )
 
+        path = Path(item.data(THUMBNAIL_PATH_ROLE))
+        use_action = QAction("Use This Location", self)
+        use_action.setEnabled(has_gps)
+        use_action.setToolTip("Put this photo's coordinates in New Location")
+        use_action.triggered.connect(lambda: self.use_location_from_path(path))
+
         menu.addAction(copy_action)
+        menu.addAction(use_action)
         menu.exec(self.list_widget.viewport().mapToGlobal(position))
 
     def copy_gps_coordinates(

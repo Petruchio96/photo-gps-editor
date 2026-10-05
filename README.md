@@ -8,13 +8,15 @@ The app supports JPG thumbnails, selected RAW formats, grouped browsing of photo
 
 ## What It Does
 
-- Load one or many photos into a thumbnail browser.
-- Show which photos already have GPS coordinates.
-- Copy GPS coordinates from an existing photo.
-- Use a source photo or manually entered coordinates as the GPS source.
-- Apply GPS coordinates to a batch of selected photos.
-- Clear GPS coordinates from photos that already have them.
-- Undo or redo the most recent GPS apply/clear action while the app is open.
+- Load one or many photos into a thumbnail grid, grouped by whether they have GPS.
+- Show only the photos that need GPS (or only those that have it).
+- Select photos in the grid and see their current GPS in the panel on the right.
+- Set a new location by typing or pasting coordinates (decimal, DMS, or DDM),
+  using a selected photo's location, or reading it from any photo file.
+- Apply the new location to the selected photos, with a warning before
+  replacing existing GPS.
+- Remove GPS coordinates from selected photos.
+- Undo or redo the most recent GPS change while the app is open.
 - Optionally keep a backup copy of each original file (Edit > Keep Backup Copies of Originals).
 
 ## Local Development Instructions

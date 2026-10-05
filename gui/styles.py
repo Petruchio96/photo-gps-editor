@@ -251,14 +251,26 @@ QListWidget#thumbnailGrid::item:hover {
     border-color: #d5e2ef;
 }
 QListWidget#thumbnailGrid::item:selected {
-    background: #dcebff;
-    border-color: #8cb7f0;
-    color: #0b2441;
+    background: #fff3e3;
+    border: 2px solid #d97706;
+    color: #4a2a00;
 }
 QLabel#thumbnailGroupHeader {
     color: #4d6177;
-    font-weight: 600;
+    font-weight: 700;
     padding-left: 2px;
+}
+QLabel#thumbnailGroupHeader[group="gps"],
+QLabel#groupDot[group="gps"] {
+    color: #2f7d4f;
+}
+QLabel#thumbnailGroupHeader[group="no_gps"],
+QLabel#groupDot[group="no_gps"] {
+    color: #a15c07;
+}
+QFrame#groupDivider {
+    background: #d6dfe8;
+    border: none;
 }
 QListWidget#thumbnailGrid QScrollBar:vertical,
 QListWidget#selectedPhotosList QScrollBar:vertical {
@@ -349,6 +361,186 @@ QLabel#statusCard[tone="info"] {
     background: #edf4fb;
     color: #21476b;
     border-color: #d6e1ec;
+}
+QLabel#browserHint[tone="success"] {
+    color: #1f6b3a;
+    background: #edf8f1;
+    border: 1px solid #b9dfc6;
+}
+QLabel#browserHint[tone="error"] {
+    color: #9b2c2c;
+    background: #fdf1f1;
+    border: 1px solid #efc4c4;
+}
+QLabel#filterLabel {
+    color: #556579;
+    font-weight: 600;
+}
+QPushButton#filterButton {
+    background: #ffffff;
+    color: #31445a;
+    border: 1px solid #cad6e2;
+    border-radius: 0px;
+    padding: 6px 14px;
+    font-weight: 600;
+}
+QPushButton#filterButton[segment="first"] {
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+QPushButton#filterButton[segment="middle"],
+QPushButton#filterButton[segment="last"] {
+    border-left: none;
+}
+QPushButton#filterButton[segment="last"] {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QPushButton#filterButton:hover {
+    background: #f3f8fe;
+}
+QPushButton#filterButton:disabled {
+    color: #a8b3bf;
+    background: #f5f7f9;
+}
+QPushButton#filterButton:checked {
+    background: #26425f;
+    color: #ffffff;
+    border-color: #26425f;
+}
+QPushButton#filterButton[filter="needs"]:checked {
+    background: #b45f06;
+    border-color: #b45f06;
+}
+QPushButton#filterButton[filter="has"]:checked {
+    background: #2f7d4f;
+    border-color: #2f7d4f;
+}
+QFrame#appHeader {
+    background: #26425f;
+    border-radius: 14px;
+}
+QLabel#appHeaderTitle {
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: 700;
+}
+QLabel#appHeaderSubtitle {
+    color: #c9d7e6;
+    font-size: 12px;
+}
+QLabel#eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QLabel#eyebrow[tone="selection"] {
+    color: #b45f06;
+}
+QGroupBox#locationGroup {
+    background: #f4f8ff;
+    border: 1px solid #b9d0f5;
+}
+QGroupBox#locationGroup::title {
+    color: #1f5fc4;
+}
+QPushButton#pickButton {
+    background: #ffffff;
+    color: #1f5fc4;
+    border: 1px solid #8cb7f0;
+}
+QPushButton#pickButton:hover {
+    background: #e8f1ff;
+}
+QPushButton#pickButton:checked {
+    background: #1f6feb;
+    color: #ffffff;
+    border-color: #1f6feb;
+}
+QFrame#pickBanner {
+    background: #1f6feb;
+    border-radius: 10px;
+}
+QLabel#pickBannerText {
+    color: #ffffff;
+    font-weight: 600;
+}
+QPushButton#pickCancel {
+    background: #ffffff;
+    color: #1f5fc4;
+    border: none;
+    padding: 6px 14px;
+}
+QFrame#sourceCard {
+    background: #e3eeff;
+    border: 1px solid #8cb7f0;
+    border-radius: 10px;
+}
+QLabel#sourceCardTitle {
+    color: #17428a;
+    font-weight: 700;
+}
+QLabel#sourceCardDetail {
+    color: #31445a;
+    font-size: 12px;
+}
+QPushButton#sourceCardClear {
+    background: transparent;
+    border: none;
+    color: #31445a;
+    padding: 0px;
+    font-weight: 700;
+}
+QPushButton#sourceCardClear:hover {
+    background: #cfe0fb;
+    border-radius: 15px;
+}
+QLabel#selectionPreview {
+    background: #f5f8fb;
+    border: 1px solid #e1e8ef;
+    border-radius: 12px;
+}
+QLabel#selectionPreview[empty="true"] {
+    border: 1px dashed #ccd7e2;
+}
+QLabel#selectionPreview[empty="false"] {
+    background: #fff8ef;
+    border: 1px solid #f0c48a;
+}
+QLabel#selectionGps {
+    color: #31445a;
+    font-size: 13px;
+}
+QLabel#applyHint {
+    font-size: 12px;
+    padding: 2px 2px;
+}
+QLabel#applyHint[tone="info"] {
+    color: #617084;
+}
+QLabel#applyHint[tone="warning"] {
+    color: #8a5300;
+}
+QLabel#applyHint[tone="error"] {
+    color: #9b2c2c;
+}
+QPushButton#removeGpsButton {
+    background: #ffffff;
+    color: #b42f2f;
+    border: 1px solid #e3b3b3;
+    padding: 8px 14px;
+}
+QPushButton#removeGpsButton:hover {
+    background: #fdf1f1;
+    border-color: #c24141;
+}
+QPushButton#removeGpsButton:pressed {
+    background: #f9e2e2;
+}
+QPushButton#removeGpsButton:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
 }
 QLabel#loadingText {
     color: #556579;

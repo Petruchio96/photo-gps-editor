@@ -60,8 +60,20 @@ Extract it and run `Photo GPS Editor` inside the folder.
 The Linux build uses the system Perl to run ExifTool. Perl is installed by
 default on most Linux distributions.
 
-### Windows and macOS
+### Windows
 
-Packaged downloads for Windows and macOS are planned for a later release.
-For now, run the project from source using the local development instructions
-above, with ExifTool installed.
+Download `photo-gps-editor-windows-x86_64.zip`, unzip it, and run
+`Photo GPS Editor.exe` inside the folder. Keep the files together: the app
+needs the `_internal` folder next to it.
+
+If Windows SmartScreen warns about an unrecognized app, choose
+**More info → Run anyway**. The app is not code-signed yet.
+
+### macOS
+
+Download `photo-gps-editor-macos-arm64.zip` and unzip it to get
+**Photo GPS Editor**. This build is for Apple Silicon Macs (M1 and later).
+
+The first time you open it, macOS blocks it because it is not from an
+identified developer. Open **System Settings → Privacy & Security** and click
+**Open Anyway**, then open the app again.

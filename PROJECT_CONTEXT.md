@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-Last updated: 2026-04-18
-Version: 1.1
-Status: Version 1 desktop app with GPS read/write workflows, grouped thumbnails, GPS badges, undo/redo for GPS edits, and expanded automated tests.
+Last updated: 2026-10-04
+Version: 1.1 released (Linux); 1.2 in progress on `main`
+Status: Desktop app redesigned around the grid selection (inspector panel, Show filter, Copy from Photo on Left), with background loading, real RAW thumbnails, failure-tolerant writes, undo/redo, optional backups, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
 
@@ -14,12 +14,12 @@ Desktop application for viewing and editing GPS metadata in photo files.
 
 Key objectives:
 - Select one or many photos using a standard file dialog
-- Display thumbnails in a grid
+- Display thumbnails in a grid, including real thumbnails for RAW files
 - View and copy GPS metadata
-- Apply GPS metadata from a source photo or manual coordinates
+- Apply GPS metadata to the photos selected in the grid, from typed, pasted, or photo-sourced coordinates
 - Clear GPS metadata from selected photos
 - Support JPG and selected RAW formats: CR2, CR3, DNG
-- Run on Linux Mint and Windows 11
+- Run on Linux Mint, Windows 11, and macOS (Apple Silicon)
 
 ## Architecture
 
@@ -28,7 +28,8 @@ Key objectives:
 - `core/models.py`: shared data models such as `PhotoInfo` and `GpsCoordinates`
 - `core/coordinates.py`: latitude/longitude validation
 - `core/file_types.py`: supported extension checks
-- `core/exiftool_wrapper.py`: ExifTool read/write/clear integration
+- `core/exiftool_wrapper.py`: ExifTool read/write/clear integration through one long-running `-stay_open` process; reads embedded RAW previews (small thumbnails are captured during the bulk GPS read to avoid reopening files); optional `keep_backups`
+- `core/process_guard.py`: starts helper processes (ExifTool) so they cannot outlive the app after a crash (shell watchdog on Linux/macOS, job object on Windows)
 - `core/photo_loader.py`: converts paths into `PhotoInfo` using single-file and bulk metadata reads
 
 ### Services
@@ -37,53 +38,46 @@ Key objectives:
 - Handles source resolution, target-file rules, session refresh, overwrite detection, coordinate parsing, and GPS apply orchestration
 - `services/workflow_facade.py`: single backend workflow entry point used by the desktop frontend
 - `services/photo_metadata_cache.py`: backend-owned in-memory metadata cache for unchanged selected photos
+- `services/gps_edit_history.py`: single-step undo/redo memory
+- Apply, clear, and undo/redo attempt every file and report failures instead of stopping at the first one
 - Intended to remain reusable for possible future desktop, API, web, or container workflows
 
 ### Desktop GUI
 
-- `gui/main_window.py`: shell window, menus, shared UI state, undo/redo memory
-- `gui/thumbnail_loader.py`: desktop thumbnail generation, fallback icons, GPS badge overlay, and icon caching
-- `gui/widgets/`: layout construction for browser/editor panels
-- `gui/presenters/`: UI-facing view-state builders
-- `gui/window_mixins/`: focused behavior for photo list, source/editor actions, and apply workflow
+- `gui/main_window.py`: shell window, header bar, menus, status row messages, undo/redo actions
+- `gui/background.py`: one background thread for loading GPS data and thumbnails; waits for the running job before the app exits
+- `gui/thumbnail_loader.py`: thumbnail generation (JPEG and embedded RAW previews, cropped and rotated upright), fallback icons, GPS badge overlay, and icon caching
+- `gui/widgets/`: browser panel (grid with click-to-add selection), inspector panel, loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming)
+- `gui/presenters/`: UI-facing view-state builders; `inspector_state.py` holds the inspector logic with no Qt code
+- `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, and apply/remove workflows
 
 ## Current UI
 
-### Left Browser Pane
+The photos selected in the grid are the photos being edited. Color has one
+meaning each: navy header, orange = selection and the Apply action, blue =
+location source, green/amber = has/needs GPS.
 
-- Loads photos with `Choose Photos`
-- Shows thumbnails in a responsive grid
-- Groups photos without GPS first, then photos with GPS under `Photos with GPS Coordinates`
-- Sorts by filename within each GPS group
+### Left Photos Pane
+
+- Loads photos with `Choose Photos` (GPS data and thumbnails load in the background; a progress row and shimmer placeholders appear only for slow loads)
+- Newly loaded photos open on the `Needs GPS` filter (or `All` if none need GPS)
+- `Show:` filter: `All`, `Needs GPS`, `Has GPS`, with counts
+- Groups photos without GPS first, then photos with GPS, with colored headings
 - Shows GPS badges on thumbnails that already have GPS
-- Supports select all, clear selection, and removing loaded photos
-- `Remove All Photos` changes to `Remove Selected Photos` only for partial selections
-- Right-click can copy GPS coordinates from a GPS-tagged thumbnail
+- Selection: click or Ctrl+click adds/removes a photo; Shift+click adds a range; dragging a box from empty space adds photos; empty clicks do nothing; Ctrl+A and `Select All` select the photos shown; arrow keys move focus without changing the selection; Space toggles
+- `Remove All from List` changes to `Remove Selected from List` for partial selections (files are never deleted)
+- Right-click: `Copy GPS Coordinates`, `Use This Location` (does not change the selection)
+- Status row under the grid shows photo counts, action results with an `Undo` link, and errors
 
-### Right GPS Editor Pane
+### Right Inspector Pane
 
-- Source modes:
-- `Use Source Photo`
-- `Enter Coordinates Manually`
-
-- Source photo workflow:
-- Source photo is independent from the destination photo list
-- Preview card shows thumbnail, filename, and GPS status
-- Source photos without GPS cannot be applied
-- `Clear Source` is enabled only when a source photo is selected
-
-- Manual coordinate workflow:
-- Latitude/longitude fields support decimal degrees, DMS, and DDM
-- Paste button accepts valid clipboard coordinates and auto-splits latitude/longitude
-- Field-level validation shows invalid state and tooltips
-- Placeholder examples use generic coordinates
-
-- Destination batch workflow:
-- Right-side list is the batch to modify
-- `Remove All Photos` changes to `Remove Selected Photos` only for partial selections
-- `Clear Coordinates from Photos` is enabled only when at least one batch photo has GPS
-- `Apply New GPS Coordinates to Photos` writes to the full right-side batch list
-- Apply and clear actions reset the right-side batch list after completion
+- `Photos to Change`: selection title, preview (one large thumbnail or a row of small ones), current GPS summary, `Copy` for a single photo
+- `New Location`: latitude/longitude fields (decimal, DMS, DDM; a pasted pair auto-splits), `Paste`, `Browse Photos`, `Clear`
+- `Copy from Photo on Left` enters pick mode: the button becomes `Cancel`, a blue banner explains the mode, only photos with GPS can be picked (filter rules show them), and everything except the All/Has GPS filters, `Choose Photos`, and `Remove from List` is disabled; the selection is kept
+- The location source shows on a blue card and as a blue `SOURCE` outline in the grid; editing the fields by hand drops it
+- `Apply to N Photos` (orange); an amber note warns when existing GPS will be replaced; the confirmation offers `Skip Photos with GPS`, `Replace`, or `Cancel`
+- `Remove GPS from N Photos` (red outline), with confirmation
+- Pop-ups for a browsed photo with no GPS and for an unreadable photo
 
 ### Menus
 
@@ -95,8 +89,10 @@ Key objectives:
 - Edit:
 - `Undo` with standard OS shortcut
 - `Redo` with standard OS shortcut
-- `Copy`
-- `Paste`
+- `Select All Photos`
+- `Copy GPS Coordinates`
+- `Paste Coordinates`
+- `Keep Backup Copies of Originals` (saved between sessions)
 
 - Help:
 - `About` includes the GitHub repository link
@@ -105,8 +101,8 @@ Key objectives:
 
 - Single-step in-memory undo/redo for GPS write actions
 - Applies to:
-- `Apply New GPS Coordinates to Photos`
-- `Clear Coordinates from Photos`
+- `Apply to N Photos`
+- `Remove GPS from N Photos`
 - Stores prior GPS state for each successfully changed photo
 - Restores prior coordinates or blank/no-GPS state on undo
 - Redo reapplies the undone GPS action
@@ -119,22 +115,26 @@ Key objectives:
 - Portrait orientation in the OS/Qt file picker may still appear sideways.
 - Main app thumbnails already display portrait orientation correctly.
 - This is likely controlled by the native file dialog and is not currently urgent.
+- In the Linux (GTK) file picker, selecting folders together with files makes `Open` do nothing; this is the picker's behavior. A safety-net pop-up for pickers that return folders is planned.
 
 ## Future Ideas
 
 - Add drag-and-drop support for loading photos
-- Add optional backup behavior before writing metadata
-- Explore a future API/web/container layer on top of the reusable `services/` backend
+- Design a new GPS badge icon to replace the satellite icon
+- Add a map view for seeing photo locations and picking a new one
+- Explore a future API/web/container layer (Docker on a Synology NAS) on top of the reusable `services/` backend
 
 ## Development Notes
 
 - Use the project virtual environment when running the app or tests
 - Run the app with `.venv/bin/python app.py`
-- Run tests with `.venv/bin/python -m unittest discover -s tests`
+- Run tests with `.venv/bin/python -m unittest discover -s tests` (add `QT_QPA_PLATFORM=offscreen` to run without a display)
+- GitHub Actions (`.github/workflows/build.yml`) runs the tests and builds Linux, Windows, and macOS apps on every push; pushing a `v*` tag attaches the builds to that release
+- Pull requests are merged with GitHub's merge button (merge commit)
 - GUI uses PySide6
 - Metadata reading/writing uses ExifTool
 - Thumbnail/icon processing uses Qt and Pillow
-- Current coverage includes backend helpers, GUI presenters, workflow services, and main-window smoke tests
+- Current coverage includes backend helpers, GUI presenters, workflow services, main-window behavior (real mouse/keyboard events), background loading, and process cleanup
 
 
 ## Completed Refactor Summary

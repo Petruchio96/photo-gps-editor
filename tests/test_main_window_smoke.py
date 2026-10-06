@@ -448,7 +448,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.window._pick_photo_files("Choose Photos")
             self.window._pick_photo_file("Browse Photos")
 
-        self.assertEqual(opened_in, ["/pictures", str(folder), str(folder)])
+        self.assertEqual(opened_in, [str(Path("/pictures")), str(folder), str(folder)])
 
     def _choose_photos_title(self, platform: str) -> str:
         titles: list[str] = []

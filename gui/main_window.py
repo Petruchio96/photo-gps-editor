@@ -5,9 +5,10 @@ Main application window.
 from __future__ import annotations
 
 import html
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QSettings, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -42,6 +43,10 @@ APP_VERSION = "1.2"
 
 # QSettings key for the "Keep Backup Copies of Originals" option.
 KEEP_BACKUPS_SETTING = "keep_backup_copies"
+
+# QSettings key: the folder photos were last chosen from, so the file
+# pickers open there next time.
+LAST_PHOTO_FOLDER_SETTING = "last_photo_folder"
 
 # How long an action message (e.g. "Applied GPS to 3 photos. Undo") stays in
 # the status row under the grid before the photo counts come back.
@@ -478,32 +483,65 @@ class MainWindow(
         self.workflow.writer.keep_backups = self.keep_backups_action.isChecked()
 
     def _default_photo_directory(self) -> Path:
-        pictures_dir = Path.home() / "Pictures"
-        return pictures_dir if pictures_dir.exists() else Path.home()
+        """
+        The user's Pictures folder, as the operating system knows it.
+
+        Asking the system matters: Windows lets "My Pictures" be moved (for
+        example to OneDrive or another drive), which leaves an empty
+        C:\\Users\\<name>\\Pictures behind. Linux desktops can rename it too.
+        """
+        system_pictures = QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
+        for candidate in (system_pictures, str(Path.home() / "Pictures")):
+            if candidate and Path(candidate).is_dir():
+                return Path(candidate)
+        return Path.home()
 
     def _photo_file_filter(self) -> str:
         return f"Images ({file_dialog_patterns()})"
 
     def _pick_photo_files(self, title: str) -> list[Path]:
+        if sys.platform.startswith("linux"):
+            # Linux's (GTK) picker silently ignores Open when folders are
+            # selected along with photos, and the app is never told, so put
+            # the rule where it is visible while choosing.
+            title = f"{title} — select photos only, or open one folder"
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             title,
-            str(self._default_photo_directory()),
+            str(self._photo_picker_start_folder()),
             self._photo_file_filter(),
         )
-        return [Path(path) for path in file_paths]
+        paths = [Path(path) for path in file_paths]
+        if paths:
+            self._remember_photo_folder(paths[0].parent)
+        return paths
 
     def _pick_photo_file(self, title: str) -> Path | None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             title,
-            str(self._default_photo_directory()),
+            str(self._photo_picker_start_folder()),
             self._photo_file_filter(),
         )
         if not file_path:
             return None
 
-        return Path(file_path)
+        path = Path(file_path)
+        self._remember_photo_folder(path.parent)
+        return path
+
+    def _photo_picker_start_folder(self) -> Path:
+        """
+        Where the file pickers open: the last folder photos were chosen from,
+        or the Pictures folder the first time (or if that folder is gone).
+        """
+        last_folder = self.settings.value(LAST_PHOTO_FOLDER_SETTING, "", type=str)
+        if last_folder and Path(last_folder).is_dir():
+            return Path(last_folder)
+        return self._default_photo_directory()
+
+    def _remember_photo_folder(self, folder: Path) -> None:
+        self.settings.setValue(LAST_PHOTO_FOLDER_SETTING, str(folder))
 
     def _format_overwrite_entries(
         self,

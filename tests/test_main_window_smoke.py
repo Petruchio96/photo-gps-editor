@@ -399,6 +399,103 @@ class MainWindowSmokeTests(unittest.TestCase):
         QTest.keyClick(grid, Qt.Key_Space)
         self.assertEqual(self.window.get_selected_paths(), [paths[0], paths[1]])
 
+    # --- File pickers: where they open --------------------------------------
+
+    def test_photo_picker_starts_in_the_systems_pictures_folder(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        moved_pictures = Path(temp_dir.name) / "My Pictures"
+        moved_pictures.mkdir()
+
+        with patch(
+            "gui.main_window.QStandardPaths.writableLocation",
+            return_value=str(moved_pictures),
+        ):
+            self.assertEqual(self.window._default_photo_directory(), moved_pictures)
+
+    def test_photo_picker_falls_back_when_system_folder_is_missing(self) -> None:
+        with patch(
+            "gui.main_window.QStandardPaths.writableLocation",
+            return_value="/does/not/exist",
+        ):
+            folder = self.window._default_photo_directory()
+
+        self.assertIn(folder, (Path.home() / "Pictures", Path.home()))
+
+    def _photo_folder(self) -> Path:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        folder = Path(temp_dir.name) / "trip"
+        folder.mkdir()
+        return folder
+
+    def test_pickers_open_in_the_folder_photos_were_last_chosen_from(self) -> None:
+        folder = self._photo_folder()
+        opened_in: list[str] = []
+
+        def fake_get_open_file_names(parent, title, directory, file_filter):
+            opened_in.append(directory)
+            return [str(folder / "a.jpg"), str(folder / "b.jpg")], file_filter
+
+        def fake_get_open_file_name(parent, title, directory, file_filter):
+            opened_in.append(directory)
+            return "", file_filter
+
+        with patch("gui.main_window.QFileDialog.getOpenFileNames", side_effect=fake_get_open_file_names), \
+                patch("gui.main_window.QFileDialog.getOpenFileName", side_effect=fake_get_open_file_name), \
+                patch.object(self.window, "_default_photo_directory", return_value=Path("/pictures")):
+            self.window._pick_photo_files("Choose Photos")
+            self.window._pick_photo_files("Choose Photos")
+            self.window._pick_photo_file("Browse Photos")
+
+        self.assertEqual(opened_in, ["/pictures", str(folder), str(folder)])
+
+    def _choose_photos_title(self, platform: str) -> str:
+        titles: list[str] = []
+
+        def fake_get_open_file_names(parent, title, directory, file_filter):
+            titles.append(title)
+            return [], file_filter
+
+        with patch("gui.main_window.QFileDialog.getOpenFileNames", side_effect=fake_get_open_file_names), \
+                patch("gui.main_window.sys.platform", platform):
+            self.window._pick_photo_files("Choose Photos")
+        return titles[0]
+
+    def test_linux_photo_picker_title_explains_the_rule(self) -> None:
+        self.assertEqual(
+            self._choose_photos_title("linux"),
+            "Choose Photos — select photos only, or open one folder",
+        )
+
+    def test_other_systems_keep_the_plain_picker_title(self) -> None:
+        self.assertEqual(self._choose_photos_title("win32"), "Choose Photos")
+        self.assertEqual(self._choose_photos_title("darwin"), "Choose Photos")
+
+    def test_last_folder_is_remembered_between_sessions(self) -> None:
+        folder = self._photo_folder()
+        self.window._remember_photo_folder(folder)
+
+        reopened = MainWindow(settings=QSettings(str(self.settings_path), QSettings.IniFormat))
+        self.addCleanup(reopened.close)
+
+        self.assertEqual(reopened._photo_picker_start_folder(), folder)
+
+    def test_missing_last_folder_falls_back_to_pictures(self) -> None:
+        self.window._remember_photo_folder(Path("/folder/that/was/deleted"))
+
+        with patch.object(self.window, "_default_photo_directory", return_value=Path("/pictures")):
+            self.assertEqual(self.window._photo_picker_start_folder(), Path("/pictures"))
+
+    def test_cancelling_the_picker_keeps_the_last_folder(self) -> None:
+        folder = self._photo_folder()
+        self.window._remember_photo_folder(folder)
+
+        with patch("gui.main_window.QFileDialog.getOpenFileNames", return_value=([], "")):
+            self.window._pick_photo_files("Choose Photos")
+
+        self.assertEqual(self.window._photo_picker_start_folder(), folder)
+
     # --- Show filter --------------------------------------------------------
 
     def test_show_filter_hides_photos_headings_and_counts(self) -> None:

@@ -21,7 +21,7 @@ class ApplyWorkflowMixin:
         """
         selected_paths = self.get_selected_paths()
         if not selected_paths:
-            self._set_status_message("Select the photos to update in the grid first.", "error")
+            self._set_status_message("Select the photos to change in the Photo List first.", "error")
             return
 
         self.validate_latitude_field()

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from gui.background import CancelToken
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list, reselect_paths
-from gui.widgets.thumbnail_delegate import SHIMMER_ROLE
+from gui.widgets.thumbnail_delegate import FADED_ROLE, SHIMMER_ROLE
 from services.models import WorkflowSession
 
 THUMBNAIL_PATH_ROLE = Qt.UserRole
@@ -45,27 +45,31 @@ SHIMMER_FRAME_MS = 40
 class PhotoListMixin:
     def select_all_photos(self) -> None:
         """
-        Select every photo currently shown (photos hidden by Show are skipped).
+        Add every photo currently shown to the selection. Photos hidden by
+        the Show filter keep whatever selection they have.
         """
         with QSignalBlocker(self.list_widget):
-            self.list_widget.clearSelection()
             for item in self._photo_items():
                 if not item.isHidden():
                     item.setSelected(True)
+        self.list_widget.viewport().update()
         self.update_details_panel()
 
     def clear_photo_selection(self) -> None:
         self.list_widget.clearSelection()
         self.update_details_panel()
 
-    def remove_photos_from_browser_list(self) -> None:
-        paths_to_remove = set(self.get_selected_paths())
-        if not paths_to_remove:
-            paths_to_remove = set(self.session.selected_paths)
+    def remove_selected_from_list(self) -> None:
+        """
+        Take the selected photos out of the list. Files are not touched.
+        """
+        self._remove_browser_paths(set(self.get_selected_paths()))
 
-        self._remove_browser_paths(paths_to_remove)
-
-    def remove_all_photos_from_browser_list(self) -> None:
+    def clear_photo_list(self) -> None:
+        """
+        Take every photo out of the list. Files are not touched.
+        """
+        self.cancel_loading()
         self._remove_browser_paths(set(self.session.selected_paths))
 
     def _remove_browser_paths(self, paths_to_remove: set[Path]) -> None:
@@ -80,22 +84,52 @@ class PhotoListMixin:
         ]
         self.populate_list()
 
-    def select_photos(self) -> None:
-        file_paths = self._pick_photo_files("Choose Photos")
-
+    def add_photos(self) -> None:
+        """
+        Add photos to the list. Photos already in it are skipped.
+        """
+        file_paths = self._pick_photo_files("Add Photos")
         if not file_paths:
             return
 
-        self._clear_gps_edit_history()
-        self.load_photos(file_paths)
+        in_list = set(self.session.selected_paths)
+        new_paths = list(dict.fromkeys(path for path in file_paths if path not in in_list))
+        skipped = len(file_paths) - len(new_paths)
+        if not new_paths:
+            self._set_status_message(
+                "Those photos are already in the list.",
+                "info",
+            )
+            return
 
-    def load_photos(self, file_paths: list[Path]) -> None:
-        """
-        Read GPS data for newly chosen photos in the background, then show them.
+        self.load_photos(
+            self.session.selected_paths + new_paths,
+            added_count=len(new_paths),
+            skipped_count=skipped,
+        )
 
-        The current grid stays usable while this runs. Thumbnails are loaded
-        afterwards, also in the background (see _start_thumbnail_job).
+    def load_photos(
+        self,
+        file_paths: list[Path],
+        *,
+        added_count: int | None = None,
+        skipped_count: int = 0,
+    ) -> None:
         """
+        Read GPS data for the photo list in the background, then show it.
+
+        The current grid stays usable while this runs, and the photos
+        selected in it stay selected. Thumbnails are loaded afterwards, also
+        in the background (see _start_thumbnail_job).
+
+        Args:
+            file_paths:
+                Every photo the list should hold, in order.
+            added_count / skipped_count:
+                For the message afterwards: how many photos are new, and how
+                many chosen photos were already in the list.
+        """
+        was_empty = not self.session.selected_paths
         self.cancel_loading(update_indicator=False)
         self._gps_load_generation += 1
         generation = self._gps_load_generation
@@ -120,9 +154,23 @@ class PhotoListMixin:
             new_session.target_paths = list(self.session.target_paths)
             new_session.source_photo_info = self.session.source_photo_info
             new_session.source_photo_path = self.session.source_photo_path
+            still_selected = self.get_selected_paths()
             self.session = new_session
-            self._choose_default_grid_filter()
+            # Open on Needs GPS only for a fresh list; adding to a list keeps
+            # the Show filter the user is on.
+            if was_empty:
+                self._choose_default_grid_filter()
             self._render_current_photo_session()
+            if still_selected:
+                self.select_browser_paths(still_selected)
+            if added_count is not None:
+                message = f"Added {added_count} photo{'' if added_count == 1 else 's'}."
+                if skipped_count:
+                    message += (
+                        f" {skipped_count} {'was' if skipped_count == 1 else 'were'} "
+                        "already in the list."
+                    )
+                self._set_status_message(message, "success")
 
         def failed(exc: BaseException) -> None:
             if generation != self._gps_load_generation:
@@ -240,6 +288,42 @@ class PhotoListMixin:
         self._grid_filter = default
         self.grid_filter_buttons[default].setChecked(True)
 
+    @property
+    def is_only_selected(self) -> bool:
+        return self._only_selected_paths is not None
+
+    def set_only_selected(self, on: bool) -> None:
+        """
+        Turn "Only Show Selected Photos" on or off.
+
+        While on, the grid shows the photos that were selected when it was
+        turned on. Deselecting one leaves it in place, faded, so nothing moves
+        and a stray click can be undone by clicking it again. The view
+        buttons are disabled; turning this off goes back to the view chosen.
+        """
+        if on == self.is_only_selected:
+            return
+        self._only_selected_paths = (
+            {str(path) for path in self.get_selected_paths()} if on else None
+        )
+        if self.only_selected_button.isChecked() != on:
+            with QSignalBlocker(self.only_selected_button):
+                self.only_selected_button.setChecked(on)
+        if not self._picking_location:
+            for button in self.grid_filter_buttons.values():
+                button.setEnabled(not on)
+        self._apply_grid_filter()
+        self.update_details_panel()
+
+    def _refresh_faded_marks(self) -> None:
+        """
+        Fade deselected photos while "Only Show Selected Photos" is on.
+        """
+        for item in self._grid_items_by_path.values():
+            faded = self.is_only_selected and not item.isSelected()
+            if bool(item.data(FADED_ROLE)) != faded:
+                item.setData(FADED_ROLE, faded)
+
     def set_grid_filter(self, key: str) -> None:
         """
         Show all photos, only those needing GPS, or only those that have it.
@@ -254,21 +338,26 @@ class PhotoListMixin:
     def _apply_grid_filter(self) -> None:
         show_no_gps = self._grid_filter in ("all", "needs")
         show_gps = self._grid_filter in ("all", "has")
+        only_paths = self._only_selected_paths
 
+        # Hiding photos doesn't deselect them: the selection is the same in
+        # every view, and switching back shows the photos still selected.
+        groups_shown = set()
         with QSignalBlocker(self.list_widget):
             for item in self._photo_items():
                 has_gps = item.data(THUMBNAIL_LATITUDE_ROLE) is not None
-                hidden = not (show_gps if has_gps else show_no_gps)
-                item.setHidden(hidden)
-                if hidden and not self._picking_location:
-                    # Hidden photos are never acted on, so don't keep them
-                    # selected. While picking a location, the filter is only
-                    # temporary, so the photos to change stay selected.
-                    item.setSelected(False)
+                if only_paths is not None:
+                    shown = item.data(THUMBNAIL_PATH_ROLE) in only_paths
+                else:
+                    shown = show_gps if has_gps else show_no_gps
+                item.setHidden(not shown)
+                if shown:
+                    groups_shown.add("gps" if has_gps else "no_gps")
 
+        # A group heading shows when any of its photos do.
         for header in self._group_header_items:
-            group = header.data(GROUP_HEADER_ROLE)
-            header.setHidden(not (show_gps if group == "gps" else show_no_gps))
+            header.setHidden(header.data(GROUP_HEADER_ROLE) not in groups_shown)
+        self._refresh_faded_marks()
 
         self._refresh_thumbnail_group_header_sizes()
 
@@ -276,10 +365,8 @@ class PhotoListMixin:
         any_visible = any(not item.isHidden() for item in self._photo_items())
         if any_visible:
             message = ""
-        elif self._picking_location:
-            message = 'Click "Choose Photos" to select a location'
         elif not self._grid_items_by_path:
-            message = 'Click "Choose Photos" to add photos to change location'
+            message = 'Click "+ Add Photos" to get started.'
         elif self._grid_filter == "needs":
             message = "No photos need GPS. Every photo shown here has coordinates."
         else:
@@ -290,14 +377,9 @@ class PhotoListMixin:
         return list(self._grid_items_by_path.values())
 
     def _selected_photo_items(self) -> list[QListWidgetItem]:
-        # Photos hidden by the Show filter don't count, except while picking a
-        # location, when the filter is temporary and the selection is kept.
-        # Listed in on-screen order, not the order they were clicked.
-        return [
-            item
-            for item in self._grid_items_by_path.values()
-            if item.isSelected() and (self._picking_location or not item.isHidden())
-        ]
+        # Every selected photo counts, including photos the Show filter hides
+        # right now. Listed in on-screen order, not the order they were clicked.
+        return [item for item in self._grid_items_by_path.values() if item.isSelected()]
 
     def _start_thumbnail_job(self, pending: list[tuple[Path, QListWidgetItem, bool]]) -> None:
         """
@@ -350,7 +432,6 @@ class PhotoListMixin:
         if generation != self._thumbnail_generation:
             return
 
-        refresh_preview = False
         for path, image in images.items():
             entry = self._pending_thumbnail_items.pop(str(path), None)
             if entry is None:
@@ -358,8 +439,6 @@ class PhotoListMixin:
             item, has_gps = entry
             item.setIcon(self.thumbnail_loader.icon_from_image(path, has_gps, image))
             item.setData(SHIMMER_ROLE, False)
-            if item.isSelected():
-                refresh_preview = True
             if path == self._location_source:
                 self._refresh_source_card()
 
@@ -371,9 +450,6 @@ class PhotoListMixin:
         )
         if not self._pending_thumbnail_items:
             self._stop_thumbnail_animation()
-        if refresh_preview:
-            # A selected photo's thumbnail arrived: update the inspector preview.
-            self._refresh_selection_preview()
 
     def _thumbnail_job_finished(self, generation: int) -> None:
         if generation != self._thumbnail_generation:
@@ -436,7 +512,7 @@ class PhotoListMixin:
 
     def get_selected_paths(self) -> list[Path]:
         """
-        The photos to act on: selected and currently shown in the grid.
+        The photos to act on: every selected photo, shown or not.
         """
         return [
             Path(item.data(THUMBNAIL_PATH_ROLE))
@@ -554,8 +630,19 @@ class PhotoListMixin:
         use_action.setToolTip("Put this photo's coordinates in New Location")
         use_action.triggered.connect(lambda: self.use_location_from_path(path))
 
+        # Acts on the whole selection when this photo is part of it,
+        # otherwise on just this photo.
+        remove_paths = (
+            set(self.get_selected_paths()) if item.isSelected() else {path}
+        )
+        remove_action = QAction("Remove from List", self)
+        remove_action.setEnabled(not self.is_picking_location)
+        remove_action.triggered.connect(lambda: self._remove_browser_paths(remove_paths))
+
         menu.addAction(copy_action)
         menu.addAction(use_action)
+        menu.addSeparator()
+        menu.addAction(remove_action)
         menu.exec(self.list_widget.viewport().mapToGlobal(position))
 
     def copy_gps_coordinates(

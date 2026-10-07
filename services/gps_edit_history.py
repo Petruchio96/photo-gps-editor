@@ -4,15 +4,31 @@ Session-only undo/redo memory for GPS edits.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 # GPS state of one file: (latitude, longitude), or (None, None) for no GPS.
 type GpsState = tuple[float | None, float | None]
 
 
+@dataclass(frozen=True)
+class PhotoListSnapshot:
+    """
+    The photo list at the time of an edit: which photos were in it, in
+    order, and which of them were selected.
+    """
+
+    paths: tuple[Path, ...] = ()
+    selected: tuple[Path, ...] = ()
+
+
 class GpsEditHistory:
     """
     Remember the most recent GPS apply or clear so it can be undone and redone.
+
+    Along with the GPS states it keeps the photo list as it was at the time,
+    so undo and redo can put the list back too (photos added or removed
+    since then are undone with it).
 
     This is single-step: recording a new edit replaces the previous one. The
     history lives in memory only and is never written to disk.
@@ -21,6 +37,7 @@ class GpsEditHistory:
     def __init__(self) -> None:
         self._before: dict[Path, GpsState] = {}
         self._after: dict[Path, GpsState] = {}
+        self._photo_list: PhotoListSnapshot | None = None
         self._undone = False
 
     def record(
@@ -28,20 +45,35 @@ class GpsEditHistory:
         *,
         before: dict[Path, GpsState],
         after: dict[Path, GpsState],
+        photo_list: PhotoListSnapshot | None = None,
     ) -> None:
         """
         Remember an edit. Only files present in both mappings are kept, so
         files that failed to update are never "restored" by undo.
+
+        Args:
+            photo_list:
+                The photo list when the edit was made (an edit doesn't change
+                the list, so this is the list both before and after it).
         """
         paths = [path for path in after if path in before]
         self._before = {path: before[path] for path in paths}
         self._after = {path: after[path] for path in paths}
+        self._photo_list = photo_list if paths else None
         self._undone = False
 
     def clear(self) -> None:
         self._before = {}
         self._after = {}
+        self._photo_list = None
         self._undone = False
+
+    @property
+    def photo_list(self) -> PhotoListSnapshot | None:
+        """
+        The photo list to put back on undo or redo, if one was recorded.
+        """
+        return self._photo_list
 
     @property
     def can_undo(self) -> bool:

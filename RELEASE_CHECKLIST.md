@@ -19,7 +19,7 @@ Use this checklist against the packaged application, not the source checkout.
 
 ## Loading
 
-- [ ] Choose Photos opens the OS file picker.
+- [ ] Add Photos opens the OS file picker.
 - [ ] JPG files load.
 - [ ] CR2, CR3, or DNG files load if sample files are available.
 - [ ] Unsupported files are ignored or handled gracefully.

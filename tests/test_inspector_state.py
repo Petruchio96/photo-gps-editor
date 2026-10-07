@@ -30,37 +30,37 @@ class InspectorStateTests(unittest.TestCase):
 
         self.assertEqual(result.title, "No Photos Selected")
         self.assertFalse(result.can_apply)
-        self.assertEqual(result.apply_label, "Apply to Selected Photos")
-        self.assertEqual(result.apply_hint, "Select the photos to update in the grid.")
+        self.assertEqual(result.apply_label, "Apply Location to Selected Photos")
+        self.assertEqual(result.apply_hint, "Select the photos to change in the Photo List.")
         self.assertFalse(result.can_remove_gps)
-        self.assertEqual(result.remove_gps_label, "Remove GPS")
+        self.assertEqual(result.remove_gps_label, "Remove GPS from Selected Photos")
 
     def test_single_photo_with_gps(self) -> None:
         result = state([WITH_GPS])
 
-        self.assertEqual(result.title, "with-gps.jpg")
-        self.assertEqual(result.gps_summary, "Current GPS: 40.500000, -111.800000")
+        self.assertEqual(result.title, "1 Photo Selected")
+        self.assertEqual(result.gps_summary, "with-gps.jpg · GPS: 40.500000, -111.800000")
         self.assertEqual(result.single_photo_coordinates, GpsCoordinates(40.5, -111.8))
         self.assertTrue(result.can_use_location)
-        self.assertEqual(result.remove_gps_label, "Remove GPS from 1 Photo")
+        self.assertEqual(result.remove_gps_label, "Remove GPS from Selected 1 Photo")
 
     def test_single_photo_without_gps(self) -> None:
         result = state([NO_GPS])
 
-        self.assertEqual(result.gps_summary, "Current GPS: none")
+        self.assertEqual(result.gps_summary, "no-gps.jpg · No GPS")
         self.assertFalse(result.can_use_location)
         self.assertFalse(result.can_remove_gps)
 
     def test_multiple_photos_gps_summary(self) -> None:
         self.assertEqual(
             state([WITH_GPS, NO_GPS]).gps_summary,
-            "Current GPS: 1 of 2 have GPS",
+            "1 without GPS · 1 with GPS",
         )
         self.assertEqual(
             state([NO_GPS, OTHER_NO_GPS]).gps_summary,
-            "Current GPS: none of them have GPS",
+            "2 without GPS · 0 with GPS",
         )
-        self.assertEqual(state([WITH_GPS]).title, "with-gps.jpg")
+        self.assertEqual(state([WITH_GPS]).title, "1 Photo Selected")
         self.assertEqual(state([NO_GPS, OTHER_NO_GPS]).title, "2 Photos Selected")
 
     def test_needs_location_before_apply(self) -> None:
@@ -81,7 +81,7 @@ class InspectorStateTests(unittest.TestCase):
         result = state([NO_GPS, OTHER_NO_GPS], "40.1", "-111.2")
 
         self.assertTrue(result.can_apply)
-        self.assertEqual(result.apply_label, "Apply to 2 Photos")
+        self.assertEqual(result.apply_label, "Apply Location to 2 Photos")
         self.assertEqual(result.new_location, GpsCoordinates(40.1, -111.2))
         self.assertEqual(result.apply_hint, "")
         self.assertEqual(result.overwrite_count, 0)
@@ -107,7 +107,7 @@ class InspectorStateTests(unittest.TestCase):
         )
 
         self.assertEqual(result.apply_hint, "2 photos already have GPS, which will be replaced.")
-        self.assertEqual(result.remove_gps_label, "Remove GPS from 2 Photos")
+        self.assertEqual(result.remove_gps_label, "Remove GPS from Selected 2 Photos")
 
 
 if __name__ == "__main__":

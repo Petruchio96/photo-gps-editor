@@ -30,6 +30,10 @@ SOURCE_ROLE = Qt.UserRole + 5
 # picked because they have no GPS. They are drawn dimmed with "No GPS".
 PICK_DISABLED_ROLE = Qt.UserRole + 6
 
+# Item data role: True in "Only Show Selected Photos" on a photo that was
+# deselected there. It stays in place, faded, so it can be clicked again.
+FADED_ROLE = Qt.UserRole + 7
+
 SOURCE_COLOR = QColor("#1f6feb")
 
 # One sweep of the light band across a tile takes this long.
@@ -58,6 +62,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
         if index.data(PICK_DISABLED_ROLE):
             _paint_unpickable(painter, option)
+        elif index.data(FADED_ROLE):
+            painter.fillRect(option.rect, QColor(255, 255, 255, 170))
         if index.data(SOURCE_ROLE):
             _paint_source_marker(painter, option)
         if not index.data(SHIMMER_ROLE):

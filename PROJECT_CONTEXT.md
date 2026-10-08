@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-Last updated: 2026-10-04
-Version: 1.1 released (Linux); 1.2 in progress on `main`
-Status: Desktop app redesigned around the grid selection (inspector panel, Show filter, Copy from Photo on Left), with background loading, real RAW thumbnails, failure-tolerant writes, undo/redo, optional backups, and CI builds for Linux, Windows, and macOS.
+Last updated: 2026-10-07
+Version: 1.2 released (Linux, Windows, macOS); two-pane layout merged to `main` for the next release
+Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), background loading, real RAW thumbnails, failure-tolerant writes, undo/redo that restores the photo list, optional backups, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
 
@@ -38,52 +38,57 @@ Key objectives:
 - Handles source resolution, target-file rules, session refresh, overwrite detection, coordinate parsing, and GPS apply orchestration
 - `services/workflow_facade.py`: single backend workflow entry point used by the desktop frontend
 - `services/photo_metadata_cache.py`: backend-owned in-memory metadata cache for unchanged selected photos
-- `services/gps_edit_history.py`: single-step undo/redo memory
+- `services/gps_edit_history.py`: single-step undo/redo memory, including a snapshot of the photo list and selection
 - Apply, clear, and undo/redo attempt every file and report failures instead of stopping at the first one
 - Intended to remain reusable for possible future desktop, API, web, or container workflows
 
 ### Desktop GUI
 
-- `gui/main_window.py`: shell window, header bar, menus, status row messages, undo/redo actions
+- `gui/main_window.py`: shell window, menus, status row messages, selection bar state, undo/redo actions
 - `gui/background.py`: one background thread for loading GPS data and thumbnails; waits for the running job before the app exits
 - `gui/thumbnail_loader.py`: thumbnail generation (JPEG and embedded RAW previews, cropped and rotated upright), fallback icons, GPS badge overlay, and icon caching
-- `gui/widgets/`: browser panel (grid with click-to-add selection), inspector panel, loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming)
+- `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
 - `gui/presenters/`: UI-facing view-state builders; `inspector_state.py` holds the inspector logic with no Qt code
 - `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, and apply/remove workflows
 
 ## Current UI
 
-The photos selected in the grid are the photos being edited. Color has one
-meaning each: navy header, orange = selection and the Apply action, blue =
-location source, green/amber = has/needs GPS.
+The photos selected in the Photo List are the photos being edited. Color has
+one meaning each: navy = Photo List, orange/brown = selection and the Apply
+action, blue = location source, green/amber = has/needs GPS. The window title
+is the OS title bar (no in-app title bar). Every button has a hover hint (a
+test enforces this).
 
-### Left Photos Pane
+### Left: Photo List
 
-- Loads photos with `Choose Photos` (GPS data and thumbnails load in the background; a progress row and shimmer placeholders appear only for slow loads)
-- Newly loaded photos open on the `Needs GPS` filter (or `All` if none need GPS)
-- `Show:` filter: `All`, `Needs GPS`, `Has GPS`, with counts
-- Groups photos without GPS first, then photos with GPS, with colored headings
+- Navy `PHOTO LIST` header with `+ Add Photos` (adds to the list, skipping photos already in it; GPS data and thumbnails load in the background) and `Clear List` (files are never deleted)
+- A list that was empty opens on `Needs GPS` (or `All` if none need GPS); adding to a list keeps the current view
+- `Show` filter: `All`, `Needs GPS`, `Has GPS`, with counts; then, after a gap, the `Only Show Selected Photos` toggle (enabled with a selection; shows the selection, fades photos deselected there in place, and turns off when a view button is clicked)
+- The selection is the same in every view; photos hidden by the view stay selected and are still acted on
+- Selection bar inside the grid: `N selected | Select All | Deselect All | Remove from List`; white with nothing selected, orange with a selection
+- Groups photos without GPS first, then photos with GPS, with colored headings; the divider shows only between two groups shown
 - Shows GPS badges on thumbnails that already have GPS
-- Selection: click or Ctrl+click adds/removes a photo; Shift+click adds a range; dragging a box from empty space adds photos; empty clicks do nothing; Ctrl+A and `Select All` select the photos shown; arrow keys move focus without changing the selection; Space toggles
-- `Remove All from List` changes to `Remove Selected from List` for partial selections (files are never deleted)
-- Right-click: `Copy GPS Coordinates`, `Use This Location` (does not change the selection)
-- Status row under the grid shows photo counts, action results with an `Undo` link, and errors
+- Selection: click or Ctrl+click adds/removes a photo; Shift+click adds a range; empty clicks and drags do nothing; Ctrl+A and `Select All` add the photos shown; arrow keys move focus without changing the selection; Space toggles; Delete removes the selected photos from the list
+- Right-click: `Copy GPS Coordinates`, `Use This Location`, `Remove from List` (does not change the selection)
+- Status row under the grid appears only for action results (with an `Undo` link), errors, and loading progress
 
-### Right Inspector Pane
+### Right: Photos to Change
 
-- `Photos to Change`: selection title, preview (one large thumbnail or a row of small ones), current GPS summary, `Copy` for a single photo
-- `New Location`: latitude/longitude fields (decimal, DMS, DDM; a pasted pair auto-splits), `Paste`, `Browse Photos`, `Clear`
-- `Copy from Photo on Left` enters pick mode: the button becomes `Cancel`, a blue banner explains the mode, only photos with GPS can be picked (filter rules show them), and everything except the All/Has GPS filters, `Choose Photos`, and `Remove from List` is disabled; the selection is kept
+- Brown `PHOTOS TO CHANGE` header, then `N Photos Selected` and `X without GPS · Y with GPS` (one photo: its name and GPS), `Copy` for a single photo with GPS
+- `Location` tab:
+- `New Location`: `Copy location` with `From a Photo in the Photo List` and `From a Photo on Your Computer`; latitude/longitude fields (decimal, DMS, DDM; a pasted pair auto-splits); `Paste`, `Clear`
+- `From a Photo in the Photo List` enters pick mode: the button becomes `Cancel`, a blue banner explains the mode, the grid switches to `Has GPS` (view buttons locked), and everything except `Add Photos`, `Clear List`, and `Cancel` is disabled; afterwards the previous view (and Only Show Selected Photos) returns, and the selection is kept. Disabled, with a hover hint, when no photo in the list has GPS
 - The location source shows on a blue card and as a blue `SOURCE` outline in the grid; editing the fields by hand drops it
-- `Apply to N Photos` (orange); an amber note warns when existing GPS will be replaced; the confirmation offers `Skip Photos with GPS`, `Replace`, or `Cancel`
-- `Remove GPS from N Photos` (red outline), with confirmation
+- `Apply Location to N Photos` (orange); a note warns when existing GPS will be replaced; the confirmation offers `Skip Photos with GPS`, `Replace`, or `Cancel`
+- `Remove GPS from Selected N Photos` (red outline, counts the selected photos that have GPS), with confirmation
+- `Date & Time` tab: placeholder until date/time editing is designed
 - Pop-ups for a browsed photo with no GPS and for an unreadable photo
 
 ### Menus
 
 - File:
-- `Choose Photos...`
-- `Remove Photos`
+- `Add Photos...` (Ctrl+O)
+- `Clear List`
 - `Exit` with standard OS shortcut
 
 - Edit:
@@ -101,13 +106,13 @@ location source, green/amber = has/needs GPS.
 
 - Single-step in-memory undo/redo for GPS write actions
 - Applies to:
-- `Apply to N Photos`
-- `Remove GPS from N Photos`
+- `Apply Location to N Photos`
+- `Remove GPS from Selected N Photos`
 - Stores prior GPS state for each successfully changed photo
 - Restores prior coordinates or blank/no-GPS state on undo
+- Also puts the photo list and selection back as they were at the edit (photos added since disappear, removed ones come back; files that no longer exist are left out)
 - Redo reapplies the undone GPS action
-- Undo/redo memory is replaced by the next apply/clear action
-- Undo/redo memory is cleared when new photos are loaded with `Choose Photos`
+- Undo/redo memory is replaced by the next apply/clear action; adding, removing, or clearing photos does not clear it
 - Memory is not written to disk and is cleared on program exit
 
 ## Known Issue
@@ -115,7 +120,8 @@ location source, green/amber = has/needs GPS.
 - Portrait orientation in the OS/Qt file picker may still appear sideways.
 - Main app thumbnails already display portrait orientation correctly.
 - This is likely controlled by the native file dialog and is not currently urgent.
-- In the Linux (GTK) file picker, selecting folders together with files makes `Open` do nothing; this is the picker's behavior. A safety-net pop-up for pickers that return folders is planned.
+- In the Linux (GTK) file picker, selecting folders together with files makes `Open` do nothing; this is the picker's behavior, explained in the Linux picker title. Trying a different Linux picker is on the to-do list.
+- Qt icon mode loses track of photo positions when a hidden photo's thumbnail changes; the grid is re-laid out after that (see `_relayout_after_hidden_icon_change`).
 
 ## Future Ideas
 

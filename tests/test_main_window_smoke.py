@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QListWidget, QMessageBox
 from core.models import PhotoInfo
 from gui.main_window import APP_VERSION, MainWindow
 from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
-from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, SOURCE_ROLE
+from gui.widgets.thumbnail_delegate import FADED_ROLE, PICK_DISABLED_ROLE, SOURCE_ROLE
 from services.workflow_facade import PhotoWorkflowFacade
 
 
@@ -162,19 +162,26 @@ class MainWindowSmokeTests(unittest.TestCase):
     # --- Layout and menus -------------------------------------------------
 
     def test_window_builds_expected_panels(self) -> None:
-        self.assertEqual(self.window.select_button.text(), "Choose Photos")
-        self.assertEqual(self.window.select_button.property("tone"), "primary")
-        self.assertEqual(self.window.open_action.text(), "Choose Photos...")
-        self.assertEqual(self.window.remove_photos_action.text(), "Remove Photos")
+        self.assertEqual(self.window.add_photos_button.text(), "Add Photos")
+        self.assertEqual(self.window.clear_list_button.text(), "Clear List")
+        self.assertEqual(self.window.open_action.text(), "Add Photos...")
+        self.assertEqual(self.window.clear_list_action.text(), "Clear List")
+        self.assertEqual(self.window.editor_tabs.count(), 2)
+        self.assertEqual(self.window.editor_tabs.tabText(0), "Location")
+        self.assertEqual(self.window.editor_tabs.tabText(1), "Date && Time")
         # Apply is the only orange (main action) button; Remove GPS has its own
         # destructive style.
         self.assertEqual(self.window.apply_button.objectName(), "accentButton")
         self.assertEqual(self.window.remove_gps_button.objectName(), "removeGpsButton")
-        self.assertNotEqual(self.window.select_button.objectName(), "accentButton")
+        self.assertNotEqual(self.window.add_photos_button.objectName(), "accentButton")
         self.assertNotEqual(self.window.paste_coordinates_button.objectName(), "accentButton")
         self.assertEqual(self.window.paste_coordinates_button.text(), "Paste")
-        self.assertEqual(self.window.location_from_photo_button.text(), "Browse Photos")
-        self.assertEqual(self.window.pick_location_button.text(), "Copy from Photo on Left")
+        self.assertEqual(
+            self.window.location_from_photo_button.text(), "From a Photo on Your Computer"
+        )
+        self.assertEqual(
+            self.window.pick_location_button.text(), "From a Photo in the Photo List"
+        )
         self.assertEqual(self.window.clear_location_button.text(), "Clear")
         # The platform decides the Quit shortcut: Ctrl+Q on most Linux
         # desktops, Cmd+Q on macOS, and none on Windows (Alt+F4 is built in).
@@ -201,16 +208,17 @@ class MainWindowSmokeTests(unittest.TestCase):
     def test_initial_inspector_with_nothing_selected(self) -> None:
         self.assertEqual(self.window.selection_title_label.text(), "No Photos Selected")
         self.assertFalse(self.window.apply_button.isEnabled())
-        self.assertEqual(self.window.apply_button.text(), "Apply to Selected Photos")
+        self.assertEqual(self.window.apply_button.text(), "Apply Location to Selected Photos")
         self.assertEqual(
             self.window.apply_hint_label.text(),
-            "Select the photos to update in the grid.",
+            "Select the photos to change in the Photo List.",
         )
         self.assertFalse(self.window.remove_gps_button.isEnabled())
         self.assertTrue(self.window.copy_location_button.isHidden())
         self.assertTrue(self.window.source_card.isHidden())
         self.assertTrue(self.window.pick_banner.isHidden())
-        self.assertIn("2 photos loaded", self.window.browser_hint.text())
+        # The status row under the grid only shows up with something to say.
+        self.assertTrue(self.window.loading_indicator.isHidden())
 
     def test_about_action_opens_versioned_dialog(self) -> None:
         with patch("gui.main_window.QMessageBox.exec") as exec_mock:
@@ -241,45 +249,95 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     # --- Selecting and removing photos -----------------------------------
 
-    def test_select_all_and_clear_selection_buttons_work(self) -> None:
-        self.window.select_all_photos()
+    def test_select_all_and_deselect_all_buttons_work(self) -> None:
+        self.window.select_all_button.click()
         self.assertEqual(self.window.get_selected_paths(), self.paths)
         self.assertEqual(self.window.selection_title_label.text(), "2 Photos Selected")
-        self.assertEqual(self.window.remove_loaded_photos_button.text(), "Remove All from List")
+        # Everything shown is selected, so Select All has nothing left to do.
+        self.assertFalse(self.window.select_all_button.isEnabled())
 
-        self.window.clear_photo_selection()
+        self.window.deselect_all_button.click()
         self.assertEqual(self.window.get_selected_paths(), [])
         self.assertEqual(self.window.selection_title_label.text(), "No Photos Selected")
 
-    def test_partial_selection_uses_remove_selected_label(self) -> None:
+    def test_selection_bar_turns_orange_only_with_a_selection(self) -> None:
+        window = self.window
+        self.assertFalse(window.selection_bar.property("active"))
+        self.assertEqual(window.selection_count_label.text(), "0 selected")
+        self.assertFalse(window.deselect_all_button.isEnabled())
+        self.assertFalse(window.remove_from_list_button.isEnabled())
+
         self._select_index(0)
 
-        self.assertEqual(
-            self.window.remove_loaded_photos_button.text(),
-            "Remove Selected from List",
-        )
-
-    def test_remove_from_list_removes_all_when_nothing_is_selected(self) -> None:
-        self.window.remove_photos_from_browser_list()
-
-        self.assertEqual(self.window.session.selected_paths, [])
-        self.assertEqual(self.window.list_widget.count(), 0)
-        self.assertFalse(self.window.remove_loaded_photos_button.isEnabled())
-        self.assertFalse(self.window.remove_photos_action.isEnabled())
-        self.assertIn("Choose Photos", self.window.list_widget.empty_message)
+        self.assertTrue(window.selection_bar.property("active"))
+        self.assertEqual(window.selection_count_label.text(), "1 selected")
+        self.assertTrue(window.deselect_all_button.isEnabled())
+        self.assertTrue(window.remove_from_list_button.isEnabled())
 
     def test_remove_from_list_removes_selected_photos_only(self) -> None:
         self._select_index(1)
 
-        self.window.remove_photos_from_browser_list()
+        self.window.remove_from_list_button.click()
 
         self.assertEqual(self.window.session.selected_paths, [self.paths[0]])
 
-    def test_file_menu_remove_photos_clears_all_photos(self) -> None:
-        self.window.remove_photos_action.trigger()
+    def test_remove_from_list_does_nothing_without_a_selection(self) -> None:
+        self.window.remove_selected_from_list()
+
+        self.assertEqual(self.window.session.selected_paths, self.paths)
+
+    def test_delete_key_removes_selected_photos_from_list(self) -> None:
+        self._select_index(0)
+        self.window.list_widget.setFocus()
+
+        QTest.keyClick(self.window.list_widget, Qt.Key_Delete)
+
+        self.assertEqual(self.window.session.selected_paths, [self.paths[1]])
+
+    def test_clear_list_empties_the_list(self) -> None:
+        self.window.clear_list_button.click()
 
         self.assertEqual(self.window.session.selected_paths, [])
-        self.assertFalse(self.window.remove_photos_action.isEnabled())
+        self.assertEqual(self.window.list_widget.count(), 0)
+        self.assertFalse(self.window.clear_list_button.isEnabled())
+        self.assertFalse(self.window.clear_list_action.isEnabled())
+        self.assertIn("Add Photos", self.window.list_widget.empty_message)
+
+    def test_file_menu_clear_list_clears_all_photos(self) -> None:
+        self.window.clear_list_action.trigger()
+
+        self.assertEqual(self.window.session.selected_paths, [])
+        self.assertFalse(self.window.clear_list_action.isEnabled())
+
+    def test_add_photos_adds_to_the_list_and_skips_photos_already_in_it(self) -> None:
+        new_path = Path("/tmp/new-photo.jpg")
+        self.gps_by_path[new_path] = (None, None)
+        self._select_index(0)
+
+        self._choose_photos([self.paths[1], new_path])
+
+        self.assertEqual(self.window.session.selected_paths, [*self.paths, new_path])
+        # What was selected stays selected.
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+        self.assertIn("Added 1 photo.", self.window.browser_hint.text())
+        self.assertIn("1 was already in the list.", self.window.browser_hint.text())
+        self.assertFalse(self.window.loading_indicator.isHidden())
+
+    def test_add_photos_with_only_photos_already_in_the_list(self) -> None:
+        self._choose_photos([self.paths[0]])
+
+        self.assertEqual(self.window.session.selected_paths, self.paths)
+        self.assertIn("already in the list", self.window.browser_hint.text())
+
+    def test_every_button_has_a_hover_hint(self) -> None:
+        from PySide6.QtWidgets import QPushButton
+
+        missing = [
+            button.text() or button.objectName()
+            for button in self.window.findChildren(QPushButton)
+            if not button.toolTip()
+        ]
+        self.assertEqual(missing, [])
 
     # --- Click selection ------------------------------------------------------
 
@@ -357,7 +415,7 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertEqual(self.window.get_selected_paths(), [paths[0]])
 
-    def test_drag_box_adds_photos_inside_it(self) -> None:
+    def test_dragging_from_empty_space_selects_nothing(self) -> None:
         paths = self._load_photos(4)
         grid = self.window.list_widget
         viewport = grid.viewport()
@@ -374,7 +432,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         QApplication.sendEvent(viewport, move)
         QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, end)
 
-        self.assertEqual(self.window.get_selected_paths(), [paths[0], paths[1], paths[3]])
+        self.assertEqual(self.window.get_selected_paths(), [paths[3]])
 
     def test_ctrl_a_selects_only_photos_shown(self) -> None:
         paths = self._load_photos(3, with_gps={1})
@@ -444,9 +502,9 @@ class MainWindowSmokeTests(unittest.TestCase):
         with patch("gui.main_window.QFileDialog.getOpenFileNames", side_effect=fake_get_open_file_names), \
                 patch("gui.main_window.QFileDialog.getOpenFileName", side_effect=fake_get_open_file_name), \
                 patch.object(self.window, "_default_photo_directory", return_value=Path("/pictures")):
-            self.window._pick_photo_files("Choose Photos")
-            self.window._pick_photo_files("Choose Photos")
-            self.window._pick_photo_file("Browse Photos")
+            self.window._pick_photo_files("Add Photos")
+            self.window._pick_photo_files("Add Photos")
+            self.window._pick_photo_file("Use the Location from a Photo")
 
         self.assertEqual(opened_in, [str(Path("/pictures")), str(folder), str(folder)])
 
@@ -459,18 +517,18 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         with patch("gui.main_window.QFileDialog.getOpenFileNames", side_effect=fake_get_open_file_names), \
                 patch("gui.main_window.sys.platform", platform):
-            self.window._pick_photo_files("Choose Photos")
+            self.window._pick_photo_files("Add Photos")
         return titles[0]
 
     def test_linux_photo_picker_title_explains_the_rule(self) -> None:
         self.assertEqual(
             self._choose_photos_title("linux"),
-            "Choose Photos — select photos only, or open one folder",
+            "Add Photos — select photos only, or open one folder",
         )
 
     def test_other_systems_keep_the_plain_picker_title(self) -> None:
-        self.assertEqual(self._choose_photos_title("win32"), "Choose Photos")
-        self.assertEqual(self._choose_photos_title("darwin"), "Choose Photos")
+        self.assertEqual(self._choose_photos_title("win32"), "Add Photos")
+        self.assertEqual(self._choose_photos_title("darwin"), "Add Photos")
 
     def test_last_folder_is_remembered_between_sessions(self) -> None:
         folder = self._photo_folder()
@@ -492,7 +550,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window._remember_photo_folder(folder)
 
         with patch("gui.main_window.QFileDialog.getOpenFileNames", return_value=([], "")):
-            self.window._pick_photo_files("Choose Photos")
+            self.window._pick_photo_files("Add Photos")
 
         self.assertEqual(self.window._photo_picker_start_folder(), folder)
 
@@ -518,11 +576,12 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def _choose_photos(self, paths: list[Path]) -> None:
         with patch.object(self.window, "_pick_photo_files", return_value=paths):
-            self.window.select_photos()
+            self.window.add_photos_button.click()
 
     def test_loaded_photos_open_on_needs_gps(self) -> None:
         with_gps = Path("/tmp/has-gps.jpg")
         self.gps_by_path[with_gps] = (41.0, -112.0)
+        self.window.clear_photo_list()
 
         self._choose_photos([*self.paths, with_gps])
 
@@ -531,6 +590,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self._visible_paths(), self.paths)
 
     def test_loaded_photos_open_on_all_when_none_need_gps(self) -> None:
+        self.window.clear_photo_list()
         self.window.set_grid_filter("needs")
         with_gps = Path("/tmp/has-gps.jpg")
         self.gps_by_path[with_gps] = (41.0, -112.0)
@@ -539,6 +599,15 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertEqual(self.window._grid_filter, "all")
         self.assertTrue(self.window.grid_filter_buttons["all"].isChecked())
+
+    def test_adding_to_a_list_keeps_the_show_filter(self) -> None:
+        self.window.set_grid_filter("has")
+        new_path = Path("/tmp/new-photo.jpg")
+        self.gps_by_path[new_path] = (None, None)
+
+        self._choose_photos([new_path])
+
+        self.assertEqual(self.window._grid_filter, "has")
 
     def test_filter_is_kept_when_the_grid_redraws_after_apply(self) -> None:
         self.window.set_grid_filter("all")
@@ -584,8 +653,10 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self._select_paths([self.paths[0]])
 
-        self.assertEqual(self.window.selection_title_label.text(), "photo-one.jpg")
-        self.assertEqual(self.window.selection_gps_label.text(), "Current GPS: 41.000000, -112.000000")
+        self.assertEqual(self.window.selection_title_label.text(), "1 Photo Selected")
+        self.assertEqual(
+            self.window.selection_gps_label.text(), "photo-one.jpg · GPS: 41.000000, -112.000000"
+        )
         self.assertFalse(self.window.copy_location_button.isHidden())
         self.assertTrue(self.window.copy_location_button.isEnabled())
         self.assertTrue(self.window.copy_action.isEnabled())
@@ -598,7 +669,7 @@ class MainWindowSmokeTests(unittest.TestCase):
     def test_single_photo_without_gps_cannot_copy(self) -> None:
         self._select_paths([self.paths[0]])
 
-        self.assertEqual(self.window.selection_gps_label.text(), "Current GPS: none")
+        self.assertEqual(self.window.selection_gps_label.text(), "photo-one.jpg · No GPS")
         self.assertFalse(self.window.copy_location_button.isEnabled())
         self.assertFalse(self.window.copy_action.isEnabled())
 
@@ -609,10 +680,10 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.select_all_photos()
 
         self.assertEqual(self.window.selection_title_label.text(), "2 Photos Selected")
-        self.assertEqual(self.window.selection_gps_label.text(), "Current GPS: 1 of 2 have GPS")
+        self.assertEqual(self.window.selection_gps_label.text(), "1 without GPS · 1 with GPS")
         self.assertTrue(self.window.copy_location_button.isHidden())
         self.assertFalse(self.window.copy_action.isEnabled())
-        self.assertEqual(self.window.remove_gps_button.text(), "Remove GPS from 1 Photo")
+        self.assertEqual(self.window.remove_gps_button.text(), "Remove GPS from Selected 1 Photo")
         self.assertTrue(self.window.remove_gps_button.isEnabled())
 
     def test_apply_button_label_hint_and_overwrite_warning(self) -> None:
@@ -625,14 +696,14 @@ class MainWindowSmokeTests(unittest.TestCase):
         self._set_location(*self.location)
 
         self.assertTrue(self.window.apply_button.isEnabled())
-        self.assertEqual(self.window.apply_button.text(), "Apply to 2 Photos")
+        self.assertEqual(self.window.apply_button.text(), "Apply Location to 2 Photos")
         self.assertEqual(
             self.window.apply_hint_label.text(),
             "1 photo already has GPS, which will be replaced.",
         )
         self.assertEqual(self.window.apply_hint_label.property("tone"), "warning")
 
-    # --- Location source: Copy from Photo on Left, right-click, card ------
+    # --- Location source: pick from the Photo List, right-click, card -----
 
     def _item_for(self, path: Path):
         return self.window._grid_items_by_path[str(path)]
@@ -663,7 +734,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertFalse(self._item_for(self.paths[0]).data(SOURCE_ROLE))
         # Picking hid photo-one temporarily (Has GPS) but kept it selected.
         self.assertFalse(self._item_for(self.paths[0]).isHidden())
-        self.assertEqual(self.window.selection_title_label.text(), "photo-one.jpg")
+        self.assertEqual(self.window.selection_title_label.text(), "1 Photo Selected")
 
     def test_pick_mode_hides_and_dims_photos_without_gps(self) -> None:
         self.gps_by_path[self.paths[1]] = (41.0, -112.0)
@@ -694,7 +765,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         window = self.window
         for widget in (
             window.select_all_button,
-            window.clear_selection_button,
+            window.deselect_all_button,
+            window.remove_from_list_button,
             window.grid_filter_buttons["needs"],
             window.latitude_input,
             window.longitude_input,
@@ -707,12 +779,12 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.assertFalse(widget.isEnabled(), widget)
         for action in (window.select_all_action, window.paste_action, window.undo_action):
             self.assertFalse(action.isEnabled())
-        # Some photos lack GPS, so only "Has GPS" is offered.
-        self.assertFalse(window.grid_filter_buttons["all"].isEnabled())
+        # The view stays on Has GPS while picking.
+        for button in window.grid_filter_buttons.values():
+            self.assertFalse(button.isEnabled())
         for widget in (
-            window.grid_filter_buttons["has"],
-            window.select_button,
-            window.remove_loaded_photos_button,
+            window.add_photos_button,
+            window.clear_list_button,
             window.pick_location_button,
         ):
             self.assertTrue(widget.isEnabled(), widget)
@@ -735,7 +807,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             window.source_card_clear,
             window.grid_filter_buttons["needs"],
             window.clear_location_button,
-            window.clear_selection_button,
+            window.deselect_all_button,
         ):
             self.assertTrue(widget.isEnabled(), widget)
         self.assertFalse(self._item_for(self.paths[0]).data(PICK_DISABLED_ROLE))
@@ -745,30 +817,185 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.gps_by_path[self.paths[1]] = (42.0, -113.0)
         self.window.populate_list()
 
-    def test_pick_mode_with_all_photos_having_gps_keeps_all_or_has_gps(self) -> None:
-        self._give_all_photos_gps()
+    def test_picking_keeps_the_photos_selected_to_change(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.set_grid_filter("needs")
+        self._select_paths([self.paths[0]])
 
-        for current in ("all", "has"):
-            self.window.set_grid_filter(current)
-            self.window.start_picking_location()
-            with self.subTest(filter=current):
-                self.assertEqual(self.window._grid_filter, current)
-                self.assertTrue(self.window.grid_filter_buttons["all"].isEnabled())
-                self.assertTrue(self.window.grid_filter_buttons["has"].isEnabled())
-                self.assertFalse(self.window.grid_filter_buttons["needs"].isEnabled())
-            self.window.stop_picking_location()
+        self.window.start_picking_location()
+        self.window.pick_location_from_item(self._item_for(self.paths[1]))
 
-    def test_pick_mode_switches_needs_gps_to_all_when_all_photos_have_gps(self) -> None:
-        self._give_all_photos_gps()
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+    def test_switching_views_keeps_the_selection(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.set_grid_filter("needs")
+        self._select_paths([self.paths[0]])
+
+        self.window.set_grid_filter("has")
+        # Hidden, but still selected and still counted as a photo to change.
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+        self.window.set_grid_filter("all")
+        self.assertTrue(self._item_for(self.paths[0]).isSelected())
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+    # --- Only Show Selected Photos ------------------------------------------
+
+    def test_only_selected_needs_a_selection_to_turn_on(self) -> None:
+        button = self.window.only_selected_button
+        self.assertFalse(button.isEnabled())
+
+        self._select_paths([self.paths[0]])
+
+        self.assertTrue(button.isEnabled())
+
+    def test_only_selected_shows_the_selection(self) -> None:
+        self._select_paths([self.paths[1]])
+
+        self.window.only_selected_button.click()
+
+        self.assertTrue(self.window.is_only_selected)
+        self.assertEqual(self._visible_paths(), [self.paths[1]])
+        # No view is shown as chosen, but the view buttons can be clicked.
+        for button in self.window.grid_filter_buttons.values():
+            self.assertFalse(button.isChecked())
+            self.assertTrue(button.isEnabled())
+        self.assertFalse(self.window.select_all_button.isEnabled())
+
+        self.window.only_selected_button.click()
+
+        self.assertFalse(self.window.is_only_selected)
+        self.assertEqual(self._visible_paths(), self.paths)
+        for button in self.window.grid_filter_buttons.values():
+            self.assertTrue(button.isEnabled())
+
+    def test_clicking_a_view_turns_only_selected_off(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self._select_paths([self.paths[0]])
+        self.window.only_selected_button.click()
+
+        self.window.grid_filter_buttons["has"].click()
+
+        self.assertFalse(self.window.is_only_selected)
+        self.assertFalse(self.window.only_selected_button.isChecked())
+        self.assertEqual(self.window._grid_filter, "has")
+        self.assertTrue(self.window.grid_filter_buttons["has"].isChecked())
+        self.assertEqual(self._visible_paths(), [self.paths[1]])
+        # The selection is kept.
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+    def test_group_divider_shows_only_between_two_groups(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        gps_header = next(
+            item for item in self.window._group_header_items
+            if item.data(Qt.UserRole + 4) == "gps"
+        )
+        divider = self.window._group_header_divider(gps_header)
+
+        self.window.set_grid_filter("all")
+        self.assertFalse(divider.isHidden())
+
+        self.window.set_grid_filter("has")
+        self.assertTrue(divider.isHidden())
+
+    def test_clicks_still_hit_photos_after_a_hidden_thumbnail_loads(self) -> None:
+        paths = self._load_photos(6, with_gps={5})
+        self.window.set_grid_filter("needs")
+        grid = self.window.list_widget
+        hidden = self._item_for(paths[5])
+        first = self._item_for(paths[0])
+        grid.doItemsLayout()
+        QApplication.processEvents()
+        # Give the hidden photo a real-looking (wide) thumbnail the way a
+        # background batch does.
+        wide = QPixmap(128, 60)
+        wide.fill(Qt.darkGreen)
+        self.window._pending_thumbnail_items = {str(paths[5]): (hidden, True)}
+        self.window._thumbnail_total = 1
+        with patch.object(
+            self.window.thumbnail_loader, "icon_from_image", return_value=QIcon(wide)
+        ):
+            self.window._apply_thumbnail_batch(
+                (self.window._thumbnail_generation, {paths[5]: None})
+            )
+        QApplication.processEvents()
+
+        rect = grid.visualItemRect(first)
+        self.assertIs(grid.itemAt(QPoint(rect.center().x(), rect.top() + 10)), first)
+
+    def test_deselecting_in_only_selected_fades_the_photo_in_place(self) -> None:
+        self._select_paths(self.paths)
+        self.window.only_selected_button.click()
+        item = self._item_for(self.paths[0])
+
+        self._press(self.paths[0])
+
+        self.assertFalse(item.isSelected())
+        self.assertEqual(self._visible_paths(), self.paths)
+        self.assertTrue(item.data(FADED_ROLE))
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[1]])
+
+        # Clicking it again brings it back.
+        self._press(self.paths[0])
+        self.assertTrue(item.isSelected())
+        self.assertFalse(item.data(FADED_ROLE))
+
+    def test_only_selected_stays_on_with_nothing_selected(self) -> None:
+        self._select_paths(self.paths)
+        self.window.only_selected_button.click()
+
+        self.window.deselect_all_button.click()
+
+        self.assertTrue(self.window.is_only_selected)
+        self.assertEqual(self._visible_paths(), self.paths)
+        # It can always be turned off.
+        self.assertTrue(self.window.only_selected_button.isEnabled())
+
+    def test_only_selected_turns_off_when_the_list_is_cleared(self) -> None:
+        self._select_paths(self.paths)
+        self.window.only_selected_button.click()
+
+        self.window.clear_list_button.click()
+
+        self.assertFalse(self.window.is_only_selected)
+        self.assertFalse(self.window.only_selected_button.isChecked())
+
+    def test_picking_returns_to_only_selected(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self._select_paths([self.paths[0]])
+        self.window.only_selected_button.click()
+
+        self.window.start_picking_location()
+        self.assertFalse(self.window.is_only_selected)
+        self.assertEqual(self.window._grid_filter, "has")
+        self.window.pick_location_from_item(self._item_for(self.paths[1]))
+
+        self.assertTrue(self.window.is_only_selected)
+        self.assertEqual(self._visible_paths(), [self.paths[0]])
+
+    def test_picking_shows_has_gps_then_returns_to_the_previous_view(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
         self.window.set_grid_filter("needs")
 
         self.window.start_picking_location()
 
-        self.assertEqual(self.window._grid_filter, "all")
-        self.assertTrue(self.window.grid_filter_buttons["all"].isChecked())
+        self.assertEqual(self.window._grid_filter, "has")
+        for button in self.window.grid_filter_buttons.values():
+            self.assertFalse(button.isEnabled())
 
-        self.window.stop_picking_location()
+        self.window.pick_location_from_item(self._item_for(self.paths[1]))
+
+        self.assertFalse(self.window.is_picking_location)
         self.assertEqual(self.window._grid_filter, "needs")
+        for button in self.window.grid_filter_buttons.values():
+            self.assertTrue(button.isEnabled())
 
     def test_pick_mode_with_mixed_photos_shows_has_gps_and_disables_all(self) -> None:
         self.gps_by_path[self.paths[1]] = (41.0, -112.0)
@@ -788,22 +1015,24 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertTrue(self.window.grid_filter_buttons["all"].isEnabled())
         self.assertTrue(self.window.grid_filter_buttons["needs"].isEnabled())
 
-    def test_pick_mode_with_no_gps_photos_explains_in_the_grid(self) -> None:
-        self.window.start_picking_location()
+    def test_pick_button_is_off_when_no_photo_has_gps(self) -> None:
+        button = self.window.pick_location_button
+        self.assertFalse(button.isEnabled())
+        self.assertIn("No photos in the Photo List have GPS", button.toolTip())
 
-        self.assertEqual(self.window._grid_filter, "has")
-        self.assertEqual(self._visible_paths(), [])
-        self.assertEqual(
-            self.window.list_widget.empty_message,
-            'Click "Choose Photos" to select a location',
-        )
+        self.window.start_picking_location()
+        self.assertFalse(self.window.is_picking_location)
+
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.assertTrue(button.isEnabled())
 
     def test_empty_grid_message_outside_pick_mode(self) -> None:
-        self.window.remove_photos_action.trigger()
+        self.window.clear_list_action.trigger()
 
         self.assertEqual(
             self.window.list_widget.empty_message,
-            'Click "Choose Photos" to add photos to change location',
+            'Click "+ Add Photos" to get started.',
         )
 
     def test_hidden_photos_leave_no_marks_in_the_grid_corner(self) -> None:
@@ -829,49 +1058,46 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertTrue(self._item_for(self.paths[0]).isHidden())
         self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
-        self.assertEqual(self.window.selection_title_label.text(), "photo-one.jpg")
+        self.assertEqual(self.window.selection_title_label.text(), "1 Photo Selected")
 
         self.window.stop_picking_location()
 
         self.assertFalse(self._item_for(self.paths[0]).isHidden())
         self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
 
-    def test_pick_mode_rules_rerun_when_photos_change(self) -> None:
+    def test_pick_mode_stops_when_no_photo_with_gps_is_left(self) -> None:
         self._give_all_photos_gps()
         self.window.start_picking_location()
-        self.assertTrue(self.window.grid_filter_buttons["all"].isEnabled())
 
-        new_path = Path("/tmp/no-gps.jpg")
-        self.gps_by_path[new_path] = (None, None)
-        self.window.session.selected_paths = [*self.paths, new_path]
+        for path in self.paths:
+            self.gps_by_path[path] = (None, None)
         self.window.populate_list()
 
-        self.assertEqual(self.window._grid_filter, "has")
-        self.assertFalse(self.window.grid_filter_buttons["all"].isEnabled())
+        self.assertFalse(self.window.is_picking_location)
 
-    def test_choose_photos_and_remove_from_list_work_while_picking(self) -> None:
+    def test_add_photos_and_clear_list_work_while_picking(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
         self.window.start_picking_location()
         new_path = Path("/tmp/new-photo.jpg")
         self.gps_by_path[new_path] = (None, None)
 
         with patch.object(self.window, "_pick_photo_files", return_value=[new_path]):
-            self.window.select_button.click()
+            self.window.add_photos_button.click()
 
-        self.assertEqual(self.window.session.selected_paths, [new_path])
+        self.assertEqual(self.window.session.selected_paths, [*self.paths, new_path])
         self.assertTrue(self.window.is_picking_location)
-        self.assertTrue(self._item_for(new_path).data(PICK_DISABLED_ROLE))
+        self.assertEqual(self.window._grid_filter, "has")
         self.assertFalse(self.window.apply_button.isEnabled())
 
-        self.window.remove_loaded_photos_button.click()
+        self.window.clear_list_button.click()
 
+        # Nothing left to copy from, so picking ends.
         self.assertEqual(self.window.session.selected_paths, [])
-        self.assertTrue(self.window.is_picking_location)
-        self.assertEqual(
-            self.window.list_widget.empty_message,
-            'Click "Choose Photos" to select a location',
-        )
+        self.assertFalse(self.window.is_picking_location)
 
     def test_escape_and_cancel_stop_picking(self) -> None:
+        self._give_all_photos_gps()
         self.window.start_picking_location()
         # Window shortcuts only reach the active window.
         self.window.activateWindow()
@@ -885,7 +1111,9 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.pick_location_button.click()
         self.assertFalse(self.window.is_picking_location)
         self.assertFalse(self.window.pick_location_button.isChecked())
-        self.assertEqual(self.window.pick_location_button.text(), "Copy from Photo on Left")
+        self.assertEqual(
+            self.window.pick_location_button.text(), "From a Photo in the Photo List"
+        )
 
     def test_right_click_does_not_change_selection(self) -> None:
         self._select_paths([self.paths[0]])
@@ -1110,7 +1338,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.apply_coordinates_to_selected()
 
         self.assertEqual(self.window.exiftool.writes, [])
-        self.assertIn("Select the photos to update", self.window.browser_hint.text())
+        self.assertIn("Select the photos to change", self.window.browser_hint.text())
 
     def test_apply_requires_valid_coordinates(self) -> None:
         self.window.select_all_photos()
@@ -1278,28 +1506,53 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertTrue(self.window.redo_action.isEnabled())
         self.assertNotIn('href="undo"', self.window.browser_hint.text())
 
-    def test_status_message_gives_way_to_photo_counts(self) -> None:
+    def test_status_row_hides_when_the_message_clears(self) -> None:
         self.window._set_status_message("Something happened.", "success")
         self.assertIn("Something happened.", self.window.browser_hint.text())
+        self.assertFalse(self.window.loading_indicator.isHidden())
 
         self.window._clear_status_message()
 
-        self.assertIn("2 photos loaded", self.window.browser_hint.text())
+        self.assertEqual(self.window.browser_hint.text(), "")
         self.assertEqual(self.window.browser_hint.property("tone"), "info")
+        self.assertTrue(self.window.loading_indicator.isHidden())
 
-    def test_choose_photos_clears_undo_and_redo_memory(self) -> None:
+    def test_undo_puts_the_photo_list_back_too(self) -> None:
+        self._select_paths([self.paths[0]])
+        self._set_location(*self.location)
+        self.window.apply_coordinates_to_selected()
+
+        # Change the list after the edit: add a photo, remove another.
+        new_path = Path("/tmp/new-photo.jpg")
+        self.gps_by_path[new_path] = (None, None)
+        self._choose_photos([new_path])
+        self._select_paths([self.paths[1]])
+        self.window.remove_selected_from_list()
+        self.assertEqual(self.window.session.selected_paths, [self.paths[0], new_path])
+        self.assertTrue(self.window.undo_action.isEnabled())
+
+        with patch.object(Path, "exists", return_value=True):
+            self.window.undo_gps_edit()
+
+        self.assertEqual(self.gps_by_path[self.paths[0]], (None, None))
+        self.assertEqual(self.window.session.selected_paths, self.paths)
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+        with patch.object(Path, "exists", return_value=True):
+            self.window.redo_gps_edit()
+
+        self._assert_coordinates_almost_equal(self.gps_by_path[self.paths[0]], self.location)
+        self.assertEqual(self.window.session.selected_paths, self.paths)
+
+    def test_undo_leaves_out_photos_that_no_longer_exist(self) -> None:
         self.window.select_all_photos()
         self._set_location(*self.location)
         self.window.apply_coordinates_to_selected()
+
+        # The test photos are not real files, so none "exist" any more.
         self.window.undo_gps_edit()
 
-        new_path = Path("/tmp/new-photo.jpg")
-        self.gps_by_path[new_path] = (None, None)
-        with patch.object(self.window, "_pick_photo_files", return_value=[new_path]):
-            self.window.select_photos()
-
-        self.assertFalse(self.window.undo_action.isEnabled())
-        self.assertFalse(self.window.redo_action.isEnabled())
+        self.assertEqual(self.window.session.selected_paths, [])
 
     def test_undo_reports_files_that_could_not_be_restored(self) -> None:
         self.window.select_all_photos()

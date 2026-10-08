@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from services.gps_edit_history import GpsEditHistory
+from services.gps_edit_history import GpsEditHistory, PhotoListSnapshot
 
 FIRST = Path("/tmp/first.jpg")
 SECOND = Path("/tmp/second.jpg")
@@ -72,6 +72,39 @@ class GpsEditHistoryTests(unittest.TestCase):
         history.undo_states().clear()
 
         self.assertEqual(history.undo_states(), {FIRST: (None, None)})
+
+    def test_remembers_the_photo_list_with_the_edit(self) -> None:
+        history = GpsEditHistory()
+        snapshot = PhotoListSnapshot(paths=(FIRST, SECOND), selected=(FIRST,))
+
+        history.record(
+            before={FIRST: (None, None)},
+            after={FIRST: (1.0, 2.0)},
+            photo_list=snapshot,
+        )
+        history.mark_undone()
+
+        # Still there for redo after an undo.
+        self.assertEqual(history.photo_list, snapshot)
+
+    def test_photo_list_is_replaced_and_cleared_with_the_edit(self) -> None:
+        history = GpsEditHistory()
+        history.record(
+            before={FIRST: (None, None)},
+            after={FIRST: (1.0, 2.0)},
+            photo_list=PhotoListSnapshot(paths=(FIRST,)),
+        )
+
+        history.record(before={SECOND: (None, None)}, after={SECOND: (3.0, 4.0)})
+        self.assertIsNone(history.photo_list)
+
+        history.record(
+            before={FIRST: (None, None)},
+            after={FIRST: (1.0, 2.0)},
+            photo_list=PhotoListSnapshot(paths=(FIRST,)),
+        )
+        history.clear()
+        self.assertIsNone(history.photo_list)
 
 
 if __name__ == "__main__":

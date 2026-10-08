@@ -4,8 +4,9 @@ The New Location fields in the inspector panel.
 Two separate jobs, kept visually separate:
     - The photos selected in the grid are the photos to change.
     - The New Location is where their new coordinates come from: typed,
-      pasted, read from a photo file ("Browse Photos"), or copied from a photo
-      on the left with "Copy from Photo on Left" or the right-click menu.
+      pasted, read from a photo file ("From a Photo on Your Computer"), or
+      copied from a photo in the Photo List with "From a Photo in the Photo
+      List" or the right-click menu.
       Picking never changes the selection.
 
 When the location came from a photo, that photo is the "location source":
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QListWidgetItem, QMessage
 
 from core.models import GpsCoordinates
 from gui.presenters.inspector_state import format_coordinates
-from gui.widgets.editor_panel import PICK_BUTTON_TEXT
+from gui.widgets.editor_panel import PICK_BUTTON_TEXT, PICK_BUTTON_TIP
 from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, SOURCE_ROLE
 from gui.window_mixins.photo_list import THUMBNAIL_LATITUDE_ROLE
 from services.coordinate_service import (
@@ -130,7 +131,7 @@ class LocationEditorMixin:
         dialog.setStandardButtons(QMessageBox.Ok)
         dialog.exec()
 
-    # --- Copy from Photo on Left (pick mode) ----------------------------------
+    # --- From a Photo in the Photo List (pick mode) ---------------------------
 
     @property
     def is_picking_location(self) -> bool:
@@ -146,10 +147,17 @@ class LocationEditorMixin:
         """
         Enter pick mode: the next click on a photo with GPS copies its location.
 
-        While picking, photos without GPS are dimmed and can't be picked, and
-        everything else is disabled except the All / Has GPS filters, Choose
-        Photos, Remove from List, and this button (which reads "Cancel").
+        While picking, the grid shows Has GPS (the photos that can be
+        picked), and everything is disabled except Add Photos, Clear List,
+        and this button (which reads "Cancel"). The photos selected to change
+        stay selected. Picking ends back on the view used before.
         """
+        if not self._photos_with_gps_count():
+            return
+        # Only Show Selected Photos steps aside while picking, then comes back.
+        self._only_selected_before_pick = self.is_only_selected
+        if self._only_selected_before_pick:
+            self.set_only_selected(False)
         self._picking_location = True
         # Remember the Show filter, to put it back when picking ends.
         self._filter_before_pick = self._grid_filter
@@ -166,7 +174,6 @@ class LocationEditorMixin:
 
     def stop_picking_location(self) -> None:
         self._picking_location = False
-        self._pick_hides_all_filter = False
         self.pick_location_button.setChecked(False)
         self.pick_location_button.setText(PICK_BUTTON_TEXT)
         self.pick_banner.hide()
@@ -180,8 +187,7 @@ class LocationEditorMixin:
             self.longitude_input,
             self.location_from_photo_button,
             self.source_card_clear,
-            self.grid_filter_buttons["needs"],
-            self.grid_filter_buttons["all"],
+            *self.grid_filter_buttons.values(),
         ):
             widget.setEnabled(True)
 
@@ -193,6 +199,10 @@ class LocationEditorMixin:
             self.set_grid_filter(previous_filter)
         else:
             self._apply_grid_filter()
+        if self._only_selected_before_pick:
+            self._only_selected_before_pick = False
+            if self.get_selected_paths():
+                self.set_only_selected(True)
         self.update_details_panel()
 
     def pick_location_from_item(self, item: QListWidgetItem | None) -> None:
@@ -212,34 +222,40 @@ class LocationEditorMixin:
 
     def _apply_pick_filter_rules(self) -> None:
         """
-        While picking, show the photos that can be picked.
-
-        - Every loaded photo has GPS: keep All or Has GPS (switch Needs GPS
-          to All).
-        - Some or none have GPS: show Has GPS and disable All, so only
-          pickable photos are shown.
+        While picking, show Has GPS: only photos with GPS can be picked.
+        If no photo with GPS is left (Clear List, for example), stop picking.
 
         Runs when picking starts and whenever the photos change while picking.
         """
         if not self._picking_location:
             return
+        if not self._photos_with_gps_count():
+            self.stop_picking_location()
+            return
 
-        total = len(self.session.thumbnail_items)
-        with_gps = sum(1 for item in self.session.thumbnail_items if item.has_gps)
-        self._pick_hides_all_filter = total > 0 and with_gps < total
-
-        if self._pick_hides_all_filter:
-            wanted = "has"
-        elif self._grid_filter in ("all", "has"):
-            wanted = self._grid_filter
-        else:
-            wanted = "all"
-
-        if wanted != self._grid_filter:
-            self.set_grid_filter(wanted)
+        if self._grid_filter != "has":
+            self.set_grid_filter("has")
         else:
             self._apply_grid_filter()
         self._apply_pick_mode_lock()
+
+    def _photos_with_gps_count(self) -> int:
+        return sum(1 for item in self.session.thumbnail_items if item.has_gps)
+
+    def _update_pick_button(self) -> None:
+        """
+        The pick button needs a photo with GPS in the list to copy from.
+        While picking it is the Cancel button, so it stays on.
+        """
+        if self._picking_location:
+            return
+        can_pick = self._photos_with_gps_count() > 0
+        self.pick_location_button.setEnabled(can_pick)
+        self.pick_location_button.setToolTip(
+            PICK_BUTTON_TIP
+            if can_pick
+            else "No photos in the Photo List have GPS coordinates to copy."
+        )
 
     def _refresh_pick_marks(self) -> None:
         """
@@ -255,18 +271,17 @@ class LocationEditorMixin:
         While picking, disable everything except the allowed controls.
 
         Called after anything that recomputes enabled states, so the lock
-        stays in place (for example when Choose Photos loads new photos).
+        stays in place (for example when Add Photos loads new photos).
         """
         if not self._picking_location:
             return
 
-        # "All" is also off when some photos lack GPS (see _apply_pick_filter_rules).
-        self.grid_filter_buttons["all"].setEnabled(not self._pick_hides_all_filter)
-
         for widget in (
             self.select_all_button,
-            self.clear_selection_button,
-            self.grid_filter_buttons["needs"],
+            self.deselect_all_button,
+            self.remove_from_list_button,
+            self.only_selected_button,
+            *self.grid_filter_buttons.values(),
             self.copy_location_button,
             self.latitude_input,
             self.longitude_input,

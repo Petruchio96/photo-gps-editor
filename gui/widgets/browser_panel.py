@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QItemSelectionModel, QPoint, QRect, QSignalBlocker, QSize, Qt
+from PySide6.QtCore import QItemSelectionModel, QPoint, QSignalBlocker, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,11 +17,11 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QRubberBand,
     QVBoxLayout,
     QWidget,
 )
 
+from gui.widgets.icons import plus_icon
 from gui.widgets.loading_indicator import LoadingIndicator
 from gui.widgets.thumbnail_delegate import PICK_DISABLED_ROLE, ThumbnailDelegate
 from gui.window_mixins.photo_list import THUMBNAIL_PATH_ROLE
@@ -38,8 +38,8 @@ class ThumbnailGrid(QListWidget):
         - Click (or Ctrl+click) a photo: add it, or remove it if selected.
         - Shift+click: add every photo shown between the last clicked photo
           and this one (photos hidden by the Show filter are skipped).
-        - Drag a box from empty space: add the photos inside it.
         - Click empty space: nothing. Ctrl+A: select every photo shown.
+        - Delete (or Backspace): remove the selected photos from the list.
         - Arrow keys move the focus without changing the selection; Space
           adds or removes the focused photo.
     Pick mode and right-click are handled separately and never change the
@@ -55,10 +55,6 @@ class ThumbnailGrid(QListWidget):
         self.empty_message = ""
         # Shift+click ranges start here: the path of the last photo clicked.
         self._anchor_path: str | None = None
-        # Drag-box state.
-        self._band: QRubberBand | None = None
-        self._band_origin: QPoint | None = None
-        self._band_base: set[str] = set()
 
     # --- Mouse --------------------------------------------------------------
 
@@ -82,10 +78,9 @@ class ThumbnailGrid(QListWidget):
         item = self._photo_item_at(position)
         self.setFocus(Qt.MouseFocusReason)
         if item is None:
-            # Empty space (or a heading): keep the selection; maybe a drag box.
-            self._band_origin = position
-            self._band_base = self._selected_path_set()
-        elif event.modifiers() & Qt.ShiftModifier:
+            # Empty space (or a heading): keep the selection.
+            pass
+        elif event.modifiers() & Qt.ShiftModifier and not self._window.is_only_selected:
             self._add_range_to(item)
         else:
             self._toggle(item)
@@ -100,8 +95,8 @@ class ThumbnailGrid(QListWidget):
             self.viewport().setCursor(Qt.ForbiddenCursor if unpickable else Qt.CrossCursor)
             event.accept()
             return
-        if self._band_origin is not None and event.buttons() & Qt.LeftButton:
-            self._update_band(position)
+        if event.buttons() & Qt.LeftButton:
+            # No drag selection: dragging over the grid changes nothing.
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -110,7 +105,6 @@ class ThumbnailGrid(QListWidget):
         if event.button() == Qt.LeftButton:
             # Our press handling already decided the selection; Qt's release
             # logic would otherwise collapse it to a single photo.
-            self._end_band()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -131,8 +125,15 @@ class ThumbnailGrid(QListWidget):
             self._window.stop_picking_location()
             event.accept()
             return
-        if event.matches(QKeySequence.StandardKey.SelectAll):
+        if event.matches(QKeySequence.StandardKey.Delete) or event.key() == Qt.Key_Backspace:
+            # Delete (Backspace on a Mac keyboard) removes the selected
+            # photos from the list, like Remove from List. Files are untouched.
             if not self._window.is_picking_location:
+                self._window.remove_selected_from_list()
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.SelectAll):
+            if self._window.select_all_button.isEnabled():
                 # Only photos currently shown, like the Select All button.
                 self._window.select_all_photos()
             event.accept()
@@ -183,13 +184,6 @@ class ThumbnailGrid(QListWidget):
             if self.item(row).data(THUMBNAIL_PATH_ROLE) is not None and not self.item(row).isHidden()
         ]
 
-    def _selected_path_set(self) -> set[str]:
-        return {
-            item.data(THUMBNAIL_PATH_ROLE)
-            for item in self.selectedItems()
-            if item.data(THUMBNAIL_PATH_ROLE) is not None
-        }
-
     def _toggle(self, item: QListWidgetItem) -> None:
         self._anchor_path = item.data(THUMBNAIL_PATH_ROLE)
         self.setCurrentItem(item, QItemSelectionModel.NoUpdate)
@@ -224,38 +218,6 @@ class ThumbnailGrid(QListWidget):
             self.viewport().update()
             self._window.update_details_panel()
 
-    def _update_band(self, position: QPoint) -> None:
-        rect = QRect(self._band_origin, position).normalized()
-        if self._band is None:
-            if rect.width() < 4 and rect.height() < 4:
-                return  # Not a drag yet, just a slightly wobbly click.
-            self._band = QRubberBand(QRubberBand.Rectangle, self.viewport())
-        self._band.setGeometry(rect)
-        self._band.show()
-
-        # Selection = what was selected before the drag + photos in the box.
-        changed = False
-        with QSignalBlocker(self):
-            for item in self._visible_photo_items():
-                wanted = (
-                    item.data(THUMBNAIL_PATH_ROLE) in self._band_base
-                    or self.visualItemRect(item).intersects(rect)
-                )
-                if item.isSelected() != wanted:
-                    item.setSelected(wanted)
-                    changed = True
-        if changed:
-            self.viewport().update()
-            self._window.update_details_panel()
-
-    def _end_band(self) -> None:
-        if self._band is not None:
-            self._band.hide()
-            self._band.deleteLater()
-            self._band = None
-        self._band_origin = None
-        self._band_base = set()
-
     def set_empty_message(self, message: str) -> None:
         if message != self.empty_message:
             self.empty_message = message
@@ -278,68 +240,147 @@ class ThumbnailGrid(QListWidget):
         painter.end()
 
 
-# Show filter values, in button order.
+# Show filter values, in button order, with their hover hints.
 GRID_FILTERS = (
-    ("all", "All"),
-    ("needs", "Needs GPS"),
-    ("has", "Has GPS"),
+    ("all", "All", "Show every photo in the list"),
+    ("needs", "Needs GPS", "Show only the photos without GPS coordinates"),
+    ("has", "Has GPS", "Show only the photos that have GPS coordinates"),
 )
+
+# Height of the colored header bars at the top of both panes.
+PANE_HEADER_HEIGHT = 60
+
+
+def build_pane_header(title: str, tone: str) -> tuple[QFrame, QHBoxLayout]:
+    """
+    A colored bar across the top of a pane, with its title on the left.
+
+    Returns the bar and its layout, so buttons can be added on the right.
+
+    Args:
+        tone:
+            "list" (navy, the Photo List) or "change" (brown, Photos to Change).
+    """
+    header = QFrame()
+    header.setObjectName("paneHeader")
+    header.setProperty("tone", tone)
+    header.setFixedHeight(PANE_HEADER_HEIGHT)
+    layout = QHBoxLayout(header)
+    layout.setContentsMargins(22, 0, 12, 0)
+    layout.setSpacing(10)
+    label = QLabel(title)
+    label.setObjectName("paneHeaderTitle")
+    layout.addWidget(label)
+    layout.addStretch(1)
+    return header, layout
+
+
+def _selection_bar_separator() -> QLabel:
+    separator = QLabel("|")
+    separator.setObjectName("selectionBarSeparator")
+    return separator
+
+
+def _build_selection_bar(window: "MainWindow") -> QFrame:
+    """
+    The strip along the top of the grid: how many photos are selected, and
+    what can be done with the selection. It turns orange (the selection
+    color) once at least one photo is selected.
+    """
+    bar = QFrame()
+    bar.setObjectName("selectionBar")
+    bar.setProperty("active", False)
+    layout = QHBoxLayout(bar)
+    layout.setContentsMargins(18, 4, 10, 4)
+    layout.setSpacing(4)
+
+    window.selection_dot = QLabel("●")
+    window.selection_dot.setObjectName("selectionDot")
+    window.selection_count_label = QLabel("0 selected")
+    window.selection_count_label.setObjectName("selectionCount")
+
+    window.select_all_button = QPushButton("Select All")
+    window.select_all_button.setToolTip("Select every photo shown (Ctrl+A)")
+    window.select_all_button.clicked.connect(window.select_all_photos)
+
+    window.deselect_all_button = QPushButton("Deselect All")
+    window.deselect_all_button.setToolTip("Deselect all photos")
+    window.deselect_all_button.clicked.connect(window.clear_photo_selection)
+
+    window.remove_from_list_button = QPushButton("✕  Remove from List")
+    window.remove_from_list_button.setToolTip(
+        "Remove the selected photos from this list (Delete key). "
+        "Files are not changed or deleted."
+    )
+    window.remove_from_list_button.clicked.connect(window.remove_selected_from_list)
+
+    layout.addWidget(window.selection_dot)
+    layout.addSpacing(4)
+    layout.addWidget(window.selection_count_label)
+    layout.addSpacing(8)
+    for button in (
+        window.select_all_button,
+        window.deselect_all_button,
+        window.remove_from_list_button,
+    ):
+        button.setObjectName("selectionBarButton")
+        button.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(_selection_bar_separator())
+        layout.addWidget(button)
+    layout.addStretch(1)
+    return bar
 
 
 def build_browser_panel(window: "MainWindow") -> QWidget:
     """
-    Create the photo grid panel shown on the left side.
+    Create the Photo List pane shown on the left side.
     """
     panel = QFrame()
     panel.setObjectName("panel")
+    panel_layout = QVBoxLayout(panel)
+    panel_layout.setContentsMargins(0, 0, 0, 0)
+    panel_layout.setSpacing(0)
 
-    layout = QVBoxLayout(panel)
-    layout.setContentsMargins(20, 20, 20, 20)
+    # Header bar: the title, and the buttons that change what is in the list.
+    header, header_layout = build_pane_header("PHOTO LIST", "list")
+    window.add_photos_button = QPushButton("Add Photos")
+    window.add_photos_button.setObjectName("headerButton")
+    window.add_photos_button.setIcon(plus_icon("#17304a"))
+    window.add_photos_button.setToolTip(
+        "Add photos to the list. Photos already in the list are skipped."
+    )
+    window.add_photos_button.clicked.connect(window.add_photos)
+    window.clear_list_button = QPushButton("Clear List")
+    window.clear_list_button.setObjectName("headerOutlineButton")
+    window.clear_list_button.setEnabled(False)
+    window.clear_list_button.setToolTip(
+        "Remove every photo from this list. Files are not changed or deleted."
+    )
+    window.clear_list_button.clicked.connect(window.clear_photo_list)
+    header_layout.addWidget(window.add_photos_button)
+    header_layout.addWidget(window.clear_list_button)
+
+    body = QWidget()
+    layout = QVBoxLayout(body)
+    layout.setContentsMargins(20, 16, 20, 20)
     layout.setSpacing(12)
 
-    section_heading = QLabel("Photos")
-    section_heading.setObjectName("sectionTitle")
-
-    # Row 1: add/remove photos, and selection shortcuts.
-    header_row = QHBoxLayout()
-    header_row.setSpacing(10)
-    window.select_button.setProperty("tone", "primary")
-    header_row.addWidget(window.select_button)
-    window.remove_loaded_photos_button = QPushButton("Remove All from List")
-    window.remove_loaded_photos_button.setProperty("tone", "neutral")
-    window.remove_loaded_photos_button.setEnabled(False)
-    window.remove_loaded_photos_button.setToolTip(
-        "Removes photos from this list only. Files are not changed or deleted."
-    )
-    window.remove_loaded_photos_button.clicked.connect(window.remove_photos_from_browser_list)
-    header_row.addWidget(window.remove_loaded_photos_button)
-    header_row.addStretch(1)
-
-    window.select_all_button = QPushButton("Select All")
-    window.select_all_button.setProperty("tone", "neutral")
-    window.select_all_button.setToolTip("Select every photo currently shown")
-    window.select_all_button.clicked.connect(window.select_all_photos)
-    window.clear_selection_button = QPushButton("Clear Selection")
-    window.clear_selection_button.setProperty("tone", "neutral")
-    window.clear_selection_button.clicked.connect(window.clear_photo_selection)
-    header_row.addWidget(window.select_all_button)
-    header_row.addWidget(window.clear_selection_button)
-
-    # Row 2: Show filter (All / Needs GPS / Has GPS), a segmented control.
+    # Show filter (All / Needs GPS / Has GPS), a segmented control.
     filter_row = QHBoxLayout()
     filter_row.setSpacing(0)
-    show_label = QLabel("Show:")
+    show_label = QLabel("Show")
     show_label.setObjectName("filterLabel")
     filter_row.addWidget(show_label)
     filter_row.addSpacing(10)
     window.grid_filter_group = QButtonGroup(panel)
     window.grid_filter_group.setExclusive(True)
     window.grid_filter_buttons = {}
-    for position, (key, text) in enumerate(GRID_FILTERS):
+    for position, (key, text, tooltip) in enumerate(GRID_FILTERS):
         button = QPushButton(text)
         button.setObjectName("filterButton")
         button.setProperty("filter", key)
         button.setCheckable(True)
+        button.setToolTip(tooltip)
         button.setProperty(
             "segment",
             "first" if position == 0 else "last" if position == len(GRID_FILTERS) - 1 else "middle",
@@ -349,6 +390,16 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
         window.grid_filter_buttons[key] = button
         filter_row.addWidget(button)
     window.grid_filter_buttons["all"].setChecked(True)
+
+    # A separate on/off switch, not a fourth view: it narrows the grid to the
+    # selected photos whichever view was chosen.
+    filter_row.addSpacing(16)
+    window.only_selected_button = QPushButton("Only Show Selected Photos")
+    window.only_selected_button.setObjectName("onlySelectedButton")
+    window.only_selected_button.setCheckable(True)
+    window.only_selected_button.setEnabled(False)
+    window.only_selected_button.toggled.connect(window.set_only_selected)
+    filter_row.addWidget(window.only_selected_button)
     filter_row.addStretch(1)
 
     # Banner shown while picking a location source from the grid.
@@ -386,11 +437,19 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
     window.thumbnail_delegate = ThumbnailDelegate(window.list_widget)
     window.list_widget.setItemDelegate(window.thumbnail_delegate)
 
-    # Status row under the grid: photo counts, action feedback (with Undo),
-    # and the loading progress row, which takes its place while loading.
-    window.browser_hint = QLabel(
-        "No photos loaded yet. Use Choose Photos to add some."
-    )
+    # The grid and its selection bar share one rounded box.
+    grid_box = QFrame()
+    grid_box.setObjectName("gridBox")
+    grid_box_layout = QVBoxLayout(grid_box)
+    grid_box_layout.setContentsMargins(0, 0, 0, 0)
+    grid_box_layout.setSpacing(0)
+    window.selection_bar = _build_selection_bar(window)
+    grid_box_layout.addWidget(window.selection_bar)
+    grid_box_layout.addWidget(window.list_widget, 1)
+
+    # Status row under the grid, hidden unless there is something to say:
+    # action feedback (with Undo), or the loading progress row.
+    window.browser_hint = QLabel()
     window.browser_hint.setObjectName("browserHint")
     window.browser_hint.setWordWrap(True)
     window.browser_hint.setTextFormat(Qt.RichText)
@@ -399,12 +458,14 @@ def build_browser_panel(window: "MainWindow") -> QWidget:
 
     window.loading_indicator = LoadingIndicator(window.browser_hint)
     window.loading_indicator.cancel_requested.connect(window.cancel_loading)
+    window.loading_indicator.showing_changed.connect(window._update_status_row)
+    window.loading_indicator.hide()
 
-    layout.addWidget(section_heading)
-    layout.addLayout(header_row)
     layout.addLayout(filter_row)
     layout.addWidget(window.pick_banner)
-    layout.addWidget(window.list_widget, 1)
+    layout.addWidget(grid_box, 1)
     layout.addWidget(window.loading_indicator)
 
+    panel_layout.addWidget(header)
+    panel_layout.addWidget(body, 1)
     return panel

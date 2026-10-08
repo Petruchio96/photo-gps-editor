@@ -86,23 +86,18 @@ def build_inspector_state(
     single_coordinates = None
     if count == 0:
         title = "No Photos Selected"
-        gps_summary = "Select photos in the grid to see or change their GPS location."
+        gps_summary = "Click photos in the Photo List to select them."
     elif count == 1:
-        title = selected_paths[0].name
+        title = "1 Photo Selected"
         single_coordinates = gps_by_path[selected_paths[0]]
         gps_summary = (
-            f"Current GPS: {format_coordinates(single_coordinates)}"
+            f"{selected_paths[0].name} · GPS: {format_coordinates(single_coordinates)}"
             if single_coordinates is not None
-            else "Current GPS: none"
+            else f"{selected_paths[0].name} · No GPS"
         )
     else:
         title = f"{count} Photos Selected"
-        if not with_gps:
-            gps_summary = "Current GPS: none of them have GPS"
-        elif len(with_gps) == count:
-            gps_summary = "Current GPS: all of them have GPS"
-        else:
-            gps_summary = f"Current GPS: {len(with_gps)} of {count} have GPS"
+        gps_summary = f"{count - len(with_gps)} without GPS · {len(with_gps)} with GPS"
 
     # New location
     parsed = parse_manual_coordinates(latitude_text, longitude_text)
@@ -111,10 +106,12 @@ def build_inspector_state(
 
     # Apply
     can_apply = count > 0 and new_location is not None
-    apply_label = f"Apply to {_photos(count)}" if count else "Apply to Selected Photos"
+    apply_label = (
+        f"Apply Location to {_photos(count)}" if count else "Apply Location to Selected Photos"
+    )
     overwrite_count = len(with_gps) if can_apply else 0
     if count == 0:
-        apply_hint, apply_hint_tone = "Select the photos to update in the grid.", "info"
+        apply_hint, apply_hint_tone = "Select the photos to change in the Photo List.", "info"
     elif new_location is None and fields_empty:
         apply_hint = "Set a new location above: copy it from a photo, type, or paste one."
         apply_hint_tone = "info"
@@ -130,10 +127,12 @@ def build_inspector_state(
     else:
         apply_hint, apply_hint_tone = "", "info"
 
-    # Remove GPS
+    # Remove GPS: counts only the selected photos that have GPS to remove.
     remove_count = len(with_gps)
     remove_label = (
-        f"Remove GPS from {_photos(remove_count)}" if remove_count else "Remove GPS"
+        f"Remove GPS from Selected {_photos(remove_count)}"
+        if remove_count
+        else "Remove GPS from Selected Photos"
     )
 
     return InspectorState(

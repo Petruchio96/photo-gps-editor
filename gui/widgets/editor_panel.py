@@ -1,9 +1,10 @@
 """
 Inspector panel UI builder (the right side of the window).
 
-The photos selected in the grid are the photos being edited. This panel shows
-what is selected, holds the new location, and offers the two actions:
-Apply (the main action) and Remove GPS (destructive, so styled to stand apart).
+The photos selected in the Photo List are the photos being edited. This pane
+shows what is selected, then two tabs: Location (the new location and the two
+actions, Apply and Remove GPS, which is destructive so styled to stand apart)
+and Date & Time (a placeholder for now).
 """
 
 from __future__ import annotations
@@ -19,75 +20,95 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from gui.widgets.browser_panel import build_pane_header
+from gui.widgets.icons import clock_icon, pin_icon
+
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
 
-SELECTION_PREVIEW_HEIGHT = 168
-
 # The pick button's label; it reads "Cancel" while picking.
-PICK_BUTTON_TEXT = "Copy from Photo on Left"
+PICK_BUTTON_TEXT = "From a Photo in the Photo List"
+PICK_BUTTON_TIP = (
+    "Click this, then click a photo with GPS in the Photo List to copy "
+    "its location. The photos selected to change stay selected."
+)
+
+# Tab positions in editor_tabs.
+LOCATION_TAB = 0
+DATE_TIME_TAB = 1
 
 
-def build_editor_panel(window: "MainWindow") -> QWidget:
+def _build_selection_summary(window: "MainWindow") -> QWidget:
     """
-    Create the right side panel: selection summary, new location, and actions.
+    Under the header: how many photos are selected, and how many of them
+    have GPS.
     """
-    panel = QFrame()
-    panel.setObjectName("panel")
-    layout = QVBoxLayout(panel)
-    layout.setContentsMargins(20, 20, 20, 20)
+    summary = QWidget()
+    layout = QHBoxLayout(summary)
+    layout.setContentsMargins(22, 16, 20, 12)
     layout.setSpacing(14)
-
-    # --- What is selected -------------------------------------------------
-    # Orange throughout means "your selection: the photos to change".
-    selection_eyebrow = QLabel("PHOTOS TO CHANGE")
-    selection_eyebrow.setObjectName("eyebrow")
-    selection_eyebrow.setProperty("tone", "selection")
 
     window.selection_title_label = QLabel("No Photos Selected")
     window.selection_title_label.setObjectName("sectionTitle")
     window.selection_title_label.setWordWrap(True)
-
-    window.selection_preview = QLabel()
-    window.selection_preview.setObjectName("selectionPreview")
-    window.selection_preview.setAlignment(Qt.AlignCenter)
-    window.selection_preview.setFixedHeight(SELECTION_PREVIEW_HEIGHT)
 
     window.selection_gps_label = QLabel()
     window.selection_gps_label.setObjectName("selectionGps")
     window.selection_gps_label.setWordWrap(True)
     window.selection_gps_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
+    text = QVBoxLayout()
+    text.setSpacing(2)
+    text.addWidget(window.selection_title_label)
+    text.addWidget(window.selection_gps_label)
+
+    # Shown only when one photo with GPS is selected.
     window.copy_location_button = QPushButton("Copy")
     window.copy_location_button.setProperty("tone", "neutral")
     window.copy_location_button.setToolTip("Copy this photo's GPS coordinates")
     window.copy_location_button.clicked.connect(window.copy_selected_photo_gps_coordinates)
 
-    selection_buttons = QHBoxLayout()
-    selection_buttons.setSpacing(10)
-    selection_buttons.addWidget(window.copy_location_button)
-    selection_buttons.addStretch(1)
+    layout.addLayout(text, 1)
+    layout.addWidget(window.copy_location_button, 0, Qt.AlignVCenter)
+    return summary
 
-    # --- New location -----------------------------------------------------
+
+def _build_location_group(window: "MainWindow") -> QGroupBox:
+    """
+    The New Location box: where the new coordinates come from.
+    Blue throughout means "where the location comes from".
+    """
     location_group = QGroupBox("New Location")
     location_group.setObjectName("locationGroup")
     location_layout = QVBoxLayout(location_group)
     location_layout.setSpacing(10)
 
+    copy_label = QLabel("Copy location")
+    copy_label.setObjectName("fieldLabel")
+
     # Pick a photo in the grid to take its location from ("eyedropper").
-    # Blue throughout means "where the location comes from".
     window.pick_location_button = QPushButton(PICK_BUTTON_TEXT)
     window.pick_location_button.setObjectName("pickButton")
     window.pick_location_button.setCheckable(True)
-    window.pick_location_button.setToolTip(
-        "Click this, then click a photo with GPS on the left to copy its "
-        "location. Your selection of photos to change is left alone."
-    )
+    window.pick_location_button.setToolTip(PICK_BUTTON_TIP)
     window.pick_location_button.clicked.connect(window.toggle_picking_location)
+
+    window.location_from_photo_button = QPushButton("From a Photo on Your Computer")
+    window.location_from_photo_button.setObjectName("pickButton")
+    window.location_from_photo_button.setToolTip(
+        "Choose any photo file on your computer and use its GPS coordinates"
+    )
+    window.location_from_photo_button.clicked.connect(window.choose_location_from_photo)
+
+    copy_buttons = QHBoxLayout()
+    copy_buttons.setSpacing(8)
+    copy_buttons.addWidget(window.pick_location_button, 1)
+    copy_buttons.addWidget(window.location_from_photo_button, 1)
 
     # Shows which photo the location came from, when it came from one.
     window.source_card = QFrame()
@@ -134,58 +155,111 @@ def build_editor_panel(window: "MainWindow") -> QWidget:
     window.paste_coordinates_button.setToolTip("Paste coordinates copied from a map or another photo")
     window.paste_coordinates_button.clicked.connect(window.paste_coordinates_from_clipboard)
 
-    window.location_from_photo_button = QPushButton("Browse Photos")
-    window.location_from_photo_button.setProperty("tone", "neutral")
-    window.location_from_photo_button.setToolTip(
-        "Choose any photo file and use its GPS coordinates"
-    )
-    window.location_from_photo_button.clicked.connect(window.choose_location_from_photo)
-
     window.clear_location_button = QPushButton("Clear")
     window.clear_location_button.setProperty("tone", "neutral")
     window.clear_location_button.setToolTip("Empty the latitude and longitude fields")
     window.clear_location_button.clicked.connect(window.clear_location_fields)
 
     location_buttons = QHBoxLayout()
-    location_buttons.setSpacing(10)
-    location_buttons.addWidget(window.paste_coordinates_button)
-    location_buttons.addWidget(window.location_from_photo_button)
-    location_buttons.addWidget(window.clear_location_button)
+    location_buttons.setSpacing(8)
+    location_buttons.addWidget(window.paste_coordinates_button, 1)
+    location_buttons.addWidget(window.clear_location_button, 1)
 
-    location_layout.addWidget(window.pick_location_button)
+    location_layout.addWidget(copy_label)
+    location_layout.addLayout(copy_buttons)
     location_layout.addWidget(window.source_card)
     location_layout.addLayout(fields)
     location_layout.addLayout(location_buttons)
+    return location_group
 
-    # --- Actions ----------------------------------------------------------
+
+def _build_location_tab(window: "MainWindow") -> QWidget:
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(20, 16, 20, 20)
+    layout.setSpacing(10)
+
     window.apply_hint_label = QLabel()
     window.apply_hint_label.setObjectName("applyHint")
     window.apply_hint_label.setWordWrap(True)
 
-    window.apply_button = QPushButton("Apply to Selected Photos")
+    window.apply_button = QPushButton("Apply Location to Selected Photos")
     window.apply_button.setObjectName("accentButton")
     window.apply_button.setEnabled(False)
     window.apply_button.setMinimumHeight(44)
+    window.apply_button.setToolTip("Write the New Location into the selected photos")
     window.apply_button.clicked.connect(window.apply_coordinates_to_selected)
 
-    window.remove_gps_button = QPushButton("Remove GPS")
+    window.remove_gps_button = QPushButton("Remove GPS from Selected Photos")
     window.remove_gps_button.setObjectName("removeGpsButton")
     window.remove_gps_button.setEnabled(False)
     window.remove_gps_button.setToolTip(
-        "Permanently delete the GPS coordinates stored in the selected photos"
+        "Delete the GPS coordinates stored in the selected photos that have them. "
+        "You can undo this afterwards."
     )
     window.remove_gps_button.clicked.connect(window.remove_gps_from_selected)
 
-    layout.addWidget(selection_eyebrow)
-    layout.addWidget(window.selection_title_label)
-    layout.addWidget(window.selection_preview)
-    layout.addWidget(window.selection_gps_label)
-    layout.addLayout(selection_buttons)
-    layout.addSpacing(6)
-    layout.addWidget(location_group)
+    layout.addWidget(_build_location_group(window))
     layout.addStretch(1)
     layout.addWidget(window.apply_hint_label)
     layout.addWidget(window.apply_button)
     layout.addWidget(window.remove_gps_button)
+    return page
 
+
+def _build_date_time_tab() -> QWidget:
+    """
+    Placeholder until changing photo dates and times is designed.
+    """
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(20, 16, 20, 20)
+
+    placeholder = QFrame()
+    placeholder.setObjectName("tabPlaceholder")
+    placeholder_layout = QVBoxLayout(placeholder)
+    placeholder_layout.setContentsMargins(24, 24, 24, 24)
+    placeholder_layout.setSpacing(8)
+    title = QLabel("Date & Time editing")
+    title.setObjectName("tabPlaceholderTitle")
+    title.setAlignment(Qt.AlignCenter)
+    detail = QLabel("Coming soon: changing the date and time stored in photos.")
+    detail.setObjectName("tabPlaceholderDetail")
+    detail.setAlignment(Qt.AlignCenter)
+    detail.setWordWrap(True)
+    placeholder_layout.addStretch(1)
+    placeholder_layout.addWidget(title)
+    placeholder_layout.addWidget(detail)
+    placeholder_layout.addStretch(1)
+
+    layout.addWidget(placeholder, 1)
+    return page
+
+
+def build_editor_panel(window: "MainWindow") -> QWidget:
+    """
+    Create the right side pane: what is selected, then the Location and
+    Date & Time tabs.
+    """
+    panel = QFrame()
+    panel.setObjectName("panel")
+    layout = QVBoxLayout(panel)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+
+    # Brown: "your selection, the photos to change".
+    header, _header_layout = build_pane_header("PHOTOS TO CHANGE", "change")
+
+    window.editor_tabs = QTabWidget()
+    window.editor_tabs.setObjectName("editorTabs")
+    window.editor_tabs.tabBar().setDrawBase(False)
+    window.editor_tabs.addTab(_build_location_tab(window), pin_icon("#31445a"), "Location")
+    # "&&" shows a plain "&" (a single "&" marks a keyboard shortcut letter).
+    window.editor_tabs.addTab(_build_date_time_tab(), clock_icon("#31445a"), "Date && Time")
+    window.editor_tabs.setTabToolTip(LOCATION_TAB, "Change where the selected photos were taken")
+    window.editor_tabs.setTabToolTip(DATE_TIME_TAB, "Change when the selected photos were taken (coming soon)")
+
+    layout.addWidget(header)
+    layout.addWidget(_build_selection_summary(window))
+    layout.addWidget(window.editor_tabs, 1)
     return panel

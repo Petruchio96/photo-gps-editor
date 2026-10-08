@@ -23,12 +23,19 @@ from PySide6.QtWidgets import (
 # placeholder should be drawn.
 SHIMMER_ROLE = Qt.UserRole + 3
 
+# Item data role: on group heading items, "no_gps" or "gps".
+GROUP_HEADER_ROLE = Qt.UserRole + 4
+
 # Item data role: True on the photo the New Location was taken from.
 SOURCE_ROLE = Qt.UserRole + 5
 
 # Item data role: True while picking a location, on photos that cannot be
 # picked because they have no GPS. They are drawn dimmed with "No GPS".
 PICK_DISABLED_ROLE = Qt.UserRole + 6
+
+# Item data role: True in "Only Show Selected Photos" on a photo that was
+# deselected there. It stays in place, faded, so it can be clicked again.
+FADED_ROLE = Qt.UserRole + 7
 
 SOURCE_COLOR = QColor("#1f6feb")
 
@@ -49,6 +56,14 @@ class ThumbnailDelegate(QStyledItemDelegate):
         """Move the light band forward by elapsed_ms of animation time."""
         self.phase = (self.phase + elapsed_ms / SHIMMER_PERIOD_MS) % 1.0
 
+    def updateEditorGeometry(self, editor, option, index) -> None:
+        # Group headings get their whole row. Qt would otherwise shrink them
+        # by the photo tiles' padding, leaving a tall empty band around them.
+        if index.data(GROUP_HEADER_ROLE) is not None:
+            editor.setGeometry(option.rect)
+            return
+        super().updateEditorGeometry(editor, option, index)
+
     def paint(self, painter: QPainter, option, index) -> None:
         # Qt still asks to paint items hidden by the Show filter, with an empty
         # rectangle at the top-left corner; drawing markers there leaves a
@@ -58,6 +73,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
         if index.data(PICK_DISABLED_ROLE):
             _paint_unpickable(painter, option)
+        elif index.data(FADED_ROLE):
+            painter.fillRect(option.rect, QColor(255, 255, 255, 170))
         if index.data(SOURCE_ROLE):
             _paint_source_marker(painter, option)
         if not index.data(SHIMMER_ROLE):

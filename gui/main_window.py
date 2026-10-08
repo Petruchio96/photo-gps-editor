@@ -12,13 +12,10 @@ from PySide6.QtCore import QElapsedTimer, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame,
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -35,7 +32,7 @@ from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
 from gui.window_mixins.inspector import InspectorMixin
 from gui.window_mixins.location_editor import LocationEditorMixin
 from gui.window_mixins.photo_list import THUMBNAIL_BATCH_SIZE, PhotoListMixin
-from services.gps_edit_history import GpsEditHistory
+from services.gps_edit_history import GpsEditHistory, PhotoListSnapshot
 from services.models import OverwriteEntry, WorkflowSession
 from services.workflow_facade import PhotoWorkflowFacade
 
@@ -49,7 +46,7 @@ KEEP_BACKUPS_SETTING = "keep_backup_copies"
 LAST_PHOTO_FOLDER_SETTING = "last_photo_folder"
 
 # How long an action message (e.g. "Applied GPS to 3 photos. Undo") stays in
-# the status row under the grid before the photo counts come back.
+# the status row under the grid before the row hides again.
 STATUS_MESSAGE_MS = 12000
 
 
@@ -91,8 +88,6 @@ class MainWindow(
         self._location_source = None
         self._picking_location = False
         self._filter_before_pick = None
-        # While picking: True when some photos lack GPS, so "All" is disabled.
-        self._pick_hides_all_filter = False
         self._last_status_message = ""
         self._last_status_tone = "info"
         self._status_undo_link = False
@@ -100,6 +95,10 @@ class MainWindow(
 
         # Photo grid state: Show filter ("all", "needs", "has") and the items.
         self._grid_filter = "all"
+        # "Only Show Selected Photos": the paths shown while it is on, or None.
+        self._only_selected_paths = None
+        # Picking a location turns it off for a moment; turn it back on after.
+        self._only_selected_before_pick = False
         self._grid_items_by_path = {}
         self._group_header_items = []
 
@@ -120,7 +119,7 @@ class MainWindow(
         self._build_menu_bar()
         self._build_loading_timers()
 
-        # Esc leaves pick mode (Copy from Photo on Left; only active while picking).
+        # Esc leaves pick mode (From a Photo in the Photo List; only active while picking).
         self._pick_escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self._pick_escape_shortcut.setEnabled(False)
         self._pick_escape_shortcut.activated.connect(self.stop_picking_location)
@@ -140,56 +139,29 @@ class MainWindow(
         outer_layout.setContentsMargins(20, 18, 20, 20)
         outer_layout.setSpacing(12)
 
-        self.select_button = QPushButton("Choose Photos")
-        self.select_button.clicked.connect(self.select_photos)
-
-        outer_layout.addWidget(self._build_app_header())
-
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(14)
         splitter.addWidget(build_browser_panel(self))
         splitter.addWidget(build_editor_panel(self))
         splitter.setStretchFactor(0, 5)
         splitter.setStretchFactor(1, 3)
-        splitter.setSizes([860, 420])
+        splitter.setSizes([900, 540])
 
         outer_layout.addWidget(splitter, 1)
-
-    def _build_app_header(self) -> QFrame:
-        """
-        Slim navy bar across the top with the app icon and name.
-        """
-        header = QFrame()
-        header.setObjectName("appHeader")
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 10, 16, 10)
-        layout.setSpacing(12)
-
-        icon = QLabel()
-        icon.setPixmap(QIcon(str(resource_path("assets/app_icon_128.png"))).pixmap(32, 32))
-        title = QLabel("Photo GPS Editor")
-        title.setObjectName("appHeaderTitle")
-        subtitle = QLabel("Select photos, set a location, apply.")
-        subtitle.setObjectName("appHeaderSubtitle")
-
-        layout.addWidget(icon)
-        layout.addWidget(title)
-        layout.addSpacing(8)
-        layout.addWidget(subtitle)
-        layout.addStretch(1)
-        return header
 
     def _build_menu_bar(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
 
-        self.open_action = QAction("Choose Photos...", self)
-        self.open_action.triggered.connect(self.select_photos)
+        self.open_action = QAction("Add Photos...", self)
+        self.open_action.setShortcuts(QKeySequence.StandardKey.Open)
+        self.open_action.triggered.connect(self.add_photos)
         file_menu.addAction(self.open_action)
 
-        self.remove_photos_action = QAction("Remove Photos", self)
-        self.remove_photos_action.setEnabled(False)
-        self.remove_photos_action.triggered.connect(self.remove_all_photos_from_browser_list)
-        file_menu.addAction(self.remove_photos_action)
+        self.clear_list_action = QAction("Clear List", self)
+        self.clear_list_action.setEnabled(False)
+        self.clear_list_action.triggered.connect(self.clear_photo_list)
+        file_menu.addAction(self.clear_list_action)
 
         file_menu.addSeparator()
 
@@ -312,39 +284,27 @@ class MainWindow(
 
     def _update_status_row(self) -> None:
         """
-        Show the latest action message, or the photo counts if there is none.
+        Show the latest action message under the grid. The row is hidden
+        when there is no message and nothing is loading.
         """
+        text = ""
+        tone = "info"
         if self._last_status_message:
             text = html.escape(self._last_status_message, quote=False)
             if self._status_undo_link and self.gps_history.can_undo:
                 text += '&nbsp;&nbsp;<a href="undo">Undo</a>'
             tone = self._last_status_tone
-        else:
-            text = html.escape(self._photo_count_summary(), quote=False)
-            tone = "info"
 
         self.browser_hint.setText(text)
         if self.browser_hint.property("tone") != tone:
             self.browser_hint.setProperty("tone", tone)
             self.browser_hint.style().unpolish(self.browser_hint)
             self.browser_hint.style().polish(self.browser_hint)
-
-    def _photo_count_summary(self) -> str:
-        loaded_count = len(self.session.selected_paths)
-        if loaded_count == 0:
-            return "No photos loaded yet. Use Choose Photos to add some."
-
-        gps_count = sum(1 for item in self.session.thumbnail_items if item.has_gps)
-        needs_gps_count = max(0, loaded_count - gps_count)
-        return (
-            f"{loaded_count} photos loaded: {needs_gps_count} need GPS, "
-            f"{gps_count} have GPS. Shift-click or Ctrl-click to select several."
-        )
+        self.loading_indicator.setVisible(bool(text) or self.loading_indicator.is_showing)
 
     def _update_selection_metrics(self) -> None:
         loaded_count = len(self.session.selected_paths)
         selected_count = len(self.get_selected_paths())
-        removes_partial_selection = 0 < selected_count < loaded_count
         gps_count = sum(1 for item in self.session.thumbnail_items if item.has_gps)
         needs_gps_count = max(0, loaded_count - gps_count)
 
@@ -356,18 +316,43 @@ class MainWindow(
         ):
             self.grid_filter_buttons[key].setText(f"{label} ({count})")
 
-        self.select_all_button.setEnabled(loaded_count > 0)
+        # Selection bar: orange once something is selected.
+        has_selection = selected_count > 0
+        self.selection_count_label.setText(f"{selected_count} selected")
+        if self.selection_bar.property("active") != has_selection:
+            self.selection_bar.setProperty("active", has_selection)
+            for widget in [self.selection_bar, *self.selection_bar.findChildren(QWidget)]:
+                self._repolish(widget)
+        visible_unselected = any(
+            not item.isHidden() and not item.isSelected() for item in self._photo_items()
+        )
+        self.select_all_button.setEnabled(visible_unselected and not self.is_only_selected)
+
+        # Only Show Selected Photos: can be turned on with a selection, and
+        # off at any time. It switches itself off if the list is emptied.
+        if self.is_only_selected and not self._grid_items_by_path:
+            self.set_only_selected(False)
+            return
+        self._refresh_faded_marks()
+        self.only_selected_button.setEnabled(self.is_only_selected or has_selection)
+        self.only_selected_button.setToolTip(
+            "Show every photo again"
+            if self.is_only_selected
+            else "Show only the selected photos, to check them before changing them"
+            if has_selection
+            else "Select photos first"
+        )
+        self.deselect_all_button.setEnabled(has_selection)
+        self.remove_from_list_button.setEnabled(has_selection)
+
+        self._update_pick_button()
+        self.clear_list_button.setEnabled(loaded_count > 0)
         if hasattr(self, "select_all_action"):
             self.select_all_action.setEnabled(loaded_count > 0)
-        self.clear_selection_button.setEnabled(selected_count > 0)
-        if hasattr(self, "remove_photos_action"):
-            self.remove_photos_action.setEnabled(loaded_count > 0)
+        if hasattr(self, "clear_list_action"):
+            self.clear_list_action.setEnabled(loaded_count > 0)
         if hasattr(self, "copy_action"):
             self.copy_action.setEnabled(self._selected_browser_gps_coordinates() is not None)
-        self.remove_loaded_photos_button.setEnabled(loaded_count > 0)
-        self.remove_loaded_photos_button.setText(
-            "Remove Selected from List" if removes_partial_selection else "Remove All from List"
-        )
         self._update_undo_redo_actions()
 
     def _gps_states_for_paths(
@@ -389,7 +374,14 @@ class MainWindow(
         before_states: dict[Path, tuple[float | None, float | None]],
         after_states: dict[Path, tuple[float | None, float | None]],
     ) -> None:
-        self.gps_history.record(before=before_states, after=after_states)
+        self.gps_history.record(
+            before=before_states,
+            after=after_states,
+            photo_list=PhotoListSnapshot(
+                paths=tuple(self.session.selected_paths),
+                selected=tuple(self.get_selected_paths()),
+            ),
+        )
         self._update_undo_redo_actions()
 
     def _clear_gps_edit_history(self) -> None:
@@ -430,16 +422,31 @@ class MainWindow(
         states: dict[Path, tuple[float | None, float | None]],
     ) -> list[str]:
         """
-        Write remembered GPS states back to files. Returns failure messages.
+        Write remembered GPS states back to files, and put the photo list
+        back the way it was when the edit was made. Returns failure messages.
         """
+        # A load still running would replace the list put back here.
+        self.cancel_loading()
+        snapshot = self.gps_history.photo_list
+        if snapshot is not None:
+            # Photos moved or deleted since then can't come back.
+            self.session.selected_paths = [path for path in snapshot.paths if path.exists()]
+            kept = set(self.session.selected_paths)
+            self.session.target_paths = [
+                path for path in self.session.target_paths if path in kept
+            ]
+
         result = self.workflow.restore_gps_states_workflow(
             session=self.session,
             states=states,
         )
         self.session = result.session
         self._render_current_photo_session()
-        self.list_widget.clearSelection()
-        self.update_details_panel()
+        if snapshot is not None:
+            self.select_browser_paths(list(snapshot.selected))
+        else:
+            self.list_widget.clearSelection()
+            self.update_details_panel()
         return list(result.execution_result.failed_paths)
 
     def _report_write_failures(self, action: str, failed_paths: list[str]) -> None:

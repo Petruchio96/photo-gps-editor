@@ -10,8 +10,8 @@ How it avoids flashing on quick loads:
     - Once visible, it stays at least MIN_VISIBLE_MS, then fades out over
       FADE_MS, so it never blinks on and straight back off.
 
-It shares a spot with the hint text under the grid (a QStackedWidget), so the
-grid never jumps up or down when the progress row appears.
+It shares a spot with the status text under the grid (a QStackedWidget). The
+window hides that spot when there is neither a message nor loading to show.
 """
 
 from __future__ import annotations
@@ -51,6 +51,8 @@ class LoadingIndicator(QStackedWidget):
     """
 
     cancel_requested = Signal()
+    # Emitted when the progress row appears or goes away.
+    showing_changed = Signal()
 
     def __init__(self, hint_label: QLabel) -> None:
         super().__init__()
@@ -76,6 +78,7 @@ class LoadingIndicator(QStackedWidget):
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setObjectName("loadingCancel")
+        self.cancel_button.setToolTip("Stop loading the photos")
         self.cancel_button.clicked.connect(self.cancel_requested)
 
         row_layout.addLayout(text_and_bar, 1)
@@ -165,6 +168,7 @@ class LoadingIndicator(QStackedWidget):
         self.setCurrentWidget(self.progress_row)
         self._showing = True
         self._visible_clock.start()
+        self.showing_changed.emit()
 
     def _start_fade(self) -> None:
         if self._active:
@@ -182,3 +186,4 @@ class LoadingIndicator(QStackedWidget):
         self.setCurrentWidget(self.hint_label)
         self._opacity.setOpacity(1.0)
         self._showing = False
+        self.showing_changed.emit()

@@ -235,7 +235,7 @@ QLabel#selectedPhotosEmpty {
 QListWidget#thumbnailGrid {
     background: transparent;
     border: none;
-    padding: 12px;
+    padding: 4px 12px 12px 12px;
     outline: none;
 }
 QListWidget#thumbnailGrid::item {

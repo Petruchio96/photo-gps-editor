@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 # placeholder should be drawn.
 SHIMMER_ROLE = Qt.UserRole + 3
 
+# Item data role: on group heading items, "no_gps" or "gps".
+GROUP_HEADER_ROLE = Qt.UserRole + 4
+
 # Item data role: True on the photo the New Location was taken from.
 SOURCE_ROLE = Qt.UserRole + 5
 
@@ -52,6 +55,14 @@ class ThumbnailDelegate(QStyledItemDelegate):
     def advance(self, elapsed_ms: int) -> None:
         """Move the light band forward by elapsed_ms of animation time."""
         self.phase = (self.phase + elapsed_ms / SHIMMER_PERIOD_MS) % 1.0
+
+    def updateEditorGeometry(self, editor, option, index) -> None:
+        # Group headings get their whole row. Qt would otherwise shrink them
+        # by the photo tiles' padding, leaving a tall empty band around them.
+        if index.data(GROUP_HEADER_ROLE) is not None:
+            editor.setGeometry(option.rect)
+            return
+        super().updateEditorGeometry(editor, option, index)
 
     def paint(self, painter: QPainter, option, index) -> None:
         # Qt still asks to paint items hidden by the Show filter, with an empty

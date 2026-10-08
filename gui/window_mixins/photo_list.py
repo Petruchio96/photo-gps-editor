@@ -18,16 +18,17 @@ from PySide6.QtWidgets import (
 
 from gui.background import CancelToken
 from gui.presenters.thumbnail_items import build_thumbnail_item_data_list, reselect_paths
-from gui.widgets.thumbnail_delegate import FADED_ROLE, SHIMMER_ROLE
+from gui.widgets.thumbnail_delegate import FADED_ROLE, GROUP_HEADER_ROLE, SHIMMER_ROLE
 from services.models import WorkflowSession
 
 THUMBNAIL_PATH_ROLE = Qt.UserRole
 THUMBNAIL_LATITUDE_ROLE = Qt.UserRole + 1
 THUMBNAIL_LONGITUDE_ROLE = Qt.UserRole + 2
-# On group heading items: "no_gps" or "gps", so the Show filter can hide them.
-GROUP_HEADER_ROLE = Qt.UserRole + 4
 THUMBNAIL_ITEM_SIZE = QSize(170, 190)
-GPS_HEADER_HEIGHT = 52
+# Group heading heights: just the title, or the title with a divider line
+# above it (separating it from the group shown above).
+GPS_HEADER_HEIGHT = 26
+GPS_HEADER_WITH_DIVIDER_HEIGHT = 44
 GPS_HEADER_MIN_WIDTH = THUMBNAIL_ITEM_SIZE.width()
 
 # Thumbnails are built in batches so the grid fills in steadily and Cancel
@@ -298,8 +299,9 @@ class PhotoListMixin:
 
         While on, the grid shows the photos that were selected when it was
         turned on. Deselecting one leaves it in place, faded, so nothing moves
-        and a stray click can be undone by clicking it again. The view
-        buttons are disabled; turning this off goes back to the view chosen.
+        and a stray click can be undone by clicking it again. No view button
+        is shown as chosen; turning this off goes back to the view chosen
+        before, and clicking a view button turns it off and shows that view.
         """
         if on == self.is_only_selected:
             return
@@ -309,11 +311,19 @@ class PhotoListMixin:
         if self.only_selected_button.isChecked() != on:
             with QSignalBlocker(self.only_selected_button):
                 self.only_selected_button.setChecked(on)
-        if not self._picking_location:
-            for button in self.grid_filter_buttons.values():
-                button.setEnabled(not on)
+        self._show_grid_filter_as_chosen(not on)
         self._apply_grid_filter()
         self.update_details_panel()
+
+    def _show_grid_filter_as_chosen(self, chosen: bool) -> None:
+        """
+        Mark the current view's button as chosen, or mark none of them.
+        """
+        group = self.grid_filter_group
+        group.setExclusive(False)
+        for key, button in self.grid_filter_buttons.items():
+            button.setChecked(chosen and key == self._grid_filter)
+        group.setExclusive(True)
 
     def _refresh_faded_marks(self) -> None:
         """
@@ -327,7 +337,10 @@ class PhotoListMixin:
     def set_grid_filter(self, key: str) -> None:
         """
         Show all photos, only those needing GPS, or only those that have it.
+        Turns off Only Show Selected Photos.
         """
+        if self.is_only_selected:
+            self.set_only_selected(False)
         self._grid_filter = key
         button = self.grid_filter_buttons.get(key)
         if button is not None and not button.isChecked():
@@ -354,9 +367,13 @@ class PhotoListMixin:
                 if shown:
                     groups_shown.add("gps" if has_gps else "no_gps")
 
-        # A group heading shows when any of its photos do.
+        # A group heading shows when any of its photos do, and its divider
+        # line only when there is a group shown above it to divide from.
         for header in self._group_header_items:
             header.setHidden(header.data(GROUP_HEADER_ROLE) not in groups_shown)
+            divider = self._group_header_divider(header)
+            if divider is not None:
+                divider.setHidden(len(groups_shown) < 2)
         self._refresh_faded_marks()
 
         self._refresh_thumbnail_group_header_sizes()
@@ -432,6 +449,7 @@ class PhotoListMixin:
         if generation != self._thumbnail_generation:
             return
 
+        hidden_changed = False
         for path, image in images.items():
             entry = self._pending_thumbnail_items.pop(str(path), None)
             if entry is None:
@@ -439,8 +457,11 @@ class PhotoListMixin:
             item, has_gps = entry
             item.setIcon(self.thumbnail_loader.icon_from_image(path, has_gps, image))
             item.setData(SHIMMER_ROLE, False)
+            hidden_changed = hidden_changed or item.isHidden()
             if path == self._location_source:
                 self._refresh_source_card()
+        if hidden_changed:
+            self._relayout_after_hidden_icon_change()
 
         done = self._thumbnail_total - len(self._pending_thumbnail_items)
         self.loading_indicator.set_progress(
@@ -450,6 +471,16 @@ class PhotoListMixin:
         )
         if not self._pending_thumbnail_items:
             self._stop_thumbnail_animation()
+
+    def _relayout_after_hidden_icon_change(self) -> None:
+        """
+        Lay the grid out again after a hidden photo's thumbnail changed.
+
+        Qt quirk: in icon mode, changing the icon of a photo hidden by the
+        Show filter leaves the grid's "which photo is under the mouse" lookup
+        out of date, so clicks and hover miss parts of the photos shown.
+        """
+        self.list_widget.doItemsLayout()
 
     def _thumbnail_job_finished(self, generation: int) -> None:
         if generation != self._thumbnail_generation:
@@ -475,9 +506,13 @@ class PhotoListMixin:
         self._thumbnail_generation += 1
 
         if use_fallback_icons:
+            hidden_changed = False
             for item, has_gps in self._pending_thumbnail_items.values():
                 item.setIcon(self.thumbnail_loader.fallback_icon_for(has_gps))
                 item.setData(SHIMMER_ROLE, False)
+                hidden_changed = hidden_changed or item.isHidden()
+            if hidden_changed:
+                self._relayout_after_hidden_icon_change()
         self._pending_thumbnail_items = {}
         self._stop_thumbnail_animation()
 
@@ -529,7 +564,7 @@ class PhotoListMixin:
         item = QListWidgetItem()
         item.setFlags(Qt.NoItemFlags)
         item.setData(GROUP_HEADER_ROLE, group)
-        item.setSizeHint(self._thumbnail_group_header_size())
+        item.setSizeHint(self._thumbnail_group_header_size(item))
         self.list_widget.addItem(item)
         self.list_widget.setItemWidget(
             item,
@@ -538,15 +573,21 @@ class PhotoListMixin:
         self._group_header_items.append(item)
         return item
 
-    def _thumbnail_group_header_size(self) -> QSize:
+    def _group_header_divider(self, item: QListWidgetItem) -> QFrame | None:
+        widget = self.list_widget.itemWidget(item)
+        return widget.findChild(QFrame, "groupDivider") if widget is not None else None
+
+    def _thumbnail_group_header_size(self, item: QListWidgetItem) -> QSize:
+        divider = self._group_header_divider(item)
+        shows_divider = divider is not None and not divider.isHidden()
         return QSize(
             max(self.list_widget.viewport().width(), GPS_HEADER_MIN_WIDTH),
-            GPS_HEADER_HEIGHT,
+            GPS_HEADER_WITH_DIVIDER_HEIGHT if shows_divider else GPS_HEADER_HEIGHT,
         )
 
     def _refresh_thumbnail_group_header_sizes(self) -> None:
         for item in getattr(self, "_group_header_items", []):
-            item.setSizeHint(self._thumbnail_group_header_size())
+            item.setSizeHint(self._thumbnail_group_header_size(item))
         self.list_widget.doItemsLayout()
 
     def _build_group_header_widget(
@@ -558,16 +599,18 @@ class PhotoListMixin:
     ) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 0, 12, 0)
+        layout.setSpacing(0)
 
-        # The divider separates a group from the one above it, so the first
-        # group on the page goes without one.
+        # The divider separates a group from the one above it. It is shown
+        # only while that group is shown too (see _apply_grid_filter).
         if with_divider:
             line = QFrame()
             line.setObjectName("groupDivider")
             line.setFixedHeight(1)
             layout.addWidget(line)
+        # The title sits at the bottom, close to its photos.
+        layout.addStretch(1)
 
         # Green for "has GPS", amber for "needs GPS" (see styles.py).
         dot = QLabel("●")

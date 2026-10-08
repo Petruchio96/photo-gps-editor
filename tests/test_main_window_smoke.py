@@ -852,15 +852,17 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertTrue(button.isEnabled())
 
-    def test_only_selected_shows_the_selection_and_locks_the_views(self) -> None:
+    def test_only_selected_shows_the_selection(self) -> None:
         self._select_paths([self.paths[1]])
 
         self.window.only_selected_button.click()
 
         self.assertTrue(self.window.is_only_selected)
         self.assertEqual(self._visible_paths(), [self.paths[1]])
+        # No view is shown as chosen, but the view buttons can be clicked.
         for button in self.window.grid_filter_buttons.values():
-            self.assertFalse(button.isEnabled())
+            self.assertFalse(button.isChecked())
+            self.assertTrue(button.isEnabled())
         self.assertFalse(self.window.select_all_button.isEnabled())
 
         self.window.only_selected_button.click()
@@ -869,6 +871,62 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self._visible_paths(), self.paths)
         for button in self.window.grid_filter_buttons.values():
             self.assertTrue(button.isEnabled())
+
+    def test_clicking_a_view_turns_only_selected_off(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        self._select_paths([self.paths[0]])
+        self.window.only_selected_button.click()
+
+        self.window.grid_filter_buttons["has"].click()
+
+        self.assertFalse(self.window.is_only_selected)
+        self.assertFalse(self.window.only_selected_button.isChecked())
+        self.assertEqual(self.window._grid_filter, "has")
+        self.assertTrue(self.window.grid_filter_buttons["has"].isChecked())
+        self.assertEqual(self._visible_paths(), [self.paths[1]])
+        # The selection is kept.
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
+
+    def test_group_divider_shows_only_between_two_groups(self) -> None:
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+        gps_header = next(
+            item for item in self.window._group_header_items
+            if item.data(Qt.UserRole + 4) == "gps"
+        )
+        divider = self.window._group_header_divider(gps_header)
+
+        self.window.set_grid_filter("all")
+        self.assertFalse(divider.isHidden())
+
+        self.window.set_grid_filter("has")
+        self.assertTrue(divider.isHidden())
+
+    def test_clicks_still_hit_photos_after_a_hidden_thumbnail_loads(self) -> None:
+        paths = self._load_photos(6, with_gps={5})
+        self.window.set_grid_filter("needs")
+        grid = self.window.list_widget
+        hidden = self._item_for(paths[5])
+        first = self._item_for(paths[0])
+        grid.doItemsLayout()
+        QApplication.processEvents()
+        # Give the hidden photo a real-looking (wide) thumbnail the way a
+        # background batch does.
+        wide = QPixmap(128, 60)
+        wide.fill(Qt.darkGreen)
+        self.window._pending_thumbnail_items = {str(paths[5]): (hidden, True)}
+        self.window._thumbnail_total = 1
+        with patch.object(
+            self.window.thumbnail_loader, "icon_from_image", return_value=QIcon(wide)
+        ):
+            self.window._apply_thumbnail_batch(
+                (self.window._thumbnail_generation, {paths[5]: None})
+            )
+        QApplication.processEvents()
+
+        rect = grid.visualItemRect(first)
+        self.assertIs(grid.itemAt(QPoint(rect.center().x(), rect.top() + 10)), first)
 
     def test_deselecting_in_only_selected_fades_the_photo_in_place(self) -> None:
         self._select_paths(self.paths)

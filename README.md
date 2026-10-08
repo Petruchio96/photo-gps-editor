@@ -8,15 +8,18 @@ The app supports JPG thumbnails, selected RAW formats, grouped browsing of photo
 
 ## What It Does
 
-- Load one or many photos into a thumbnail grid, grouped by whether they have GPS.
-- Show only the photos that need GPS (or only those that have it).
-- Select photos in the grid and see their current GPS in the panel on the right.
+- Add photos to the Photo List, grouped by whether they have GPS.
+- Show only the photos that need GPS, only those that have it, or only the
+  photos you have selected.
+- Select the photos to change; the Photos to Change pane shows how many are
+  selected and how many already have GPS.
 - Set a new location by typing or pasting coordinates (decimal, DMS, or DDM),
   using a selected photo's location, or reading it from any photo file.
 - Apply the new location to the selected photos, with a warning before
   replacing existing GPS.
 - Remove GPS coordinates from selected photos.
-- Undo or redo the most recent GPS change while the app is open.
+- Undo or redo the most recent GPS change while the app is open (undo also
+  puts the photo list back the way it was).
 - Optionally keep a backup copy of each original file (Edit > Keep Backup Copies of Originals).
 
 ## Local Development Instructions

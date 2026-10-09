@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-Last updated: 2026-10-07
-Version: 1.2 released (Linux, Windows, macOS); two-pane layout merged to `main` for the next release
-Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), background loading, real RAW thumbnails, failure-tolerant writes, undo/redo that restores the photo list, optional backups, and CI builds for Linux, Windows, and macOS.
+Last updated: 2026-10-09
+Version: 1.3 released (Linux, Windows, macOS); the app's own Add Photos picker merged to `main` for the next release
+Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
 
@@ -13,7 +13,7 @@ Repository: https://github.com/Petruchio96/photo-gps-editor
 Desktop application for viewing and editing GPS metadata in photo files.
 
 Key objectives:
-- Select one or many photos using a standard file dialog
+- Select one or many photos with the app's own picker (folder tree on the left, only photos on the right)
 - Display thumbnails in a grid, including real thumbnails for RAW files
 - View and copy GPS metadata
 - Apply GPS metadata to the photos selected in the grid, from typed, pasted, or photo-sourced coordinates
@@ -28,6 +28,7 @@ Key objectives:
 - `core/models.py`: shared data models such as `PhotoInfo` and `GpsCoordinates`
 - `core/coordinates.py`: latitude/longitude validation
 - `core/file_types.py`: supported extension checks
+- `core/places.py`: the picker's places and folder listings (bookmarks from the Linux file manager, network share names, system mounts to skip, hidden files per system); no Qt
 - `core/exiftool_wrapper.py`: ExifTool read/write/clear integration through one long-running `-stay_open` process; reads embedded RAW previews (small thumbnails are captured during the bulk GPS read to avoid reopening files); optional `keep_backups`
 - `core/process_guard.py`: starts helper processes (ExifTool) so they cannot outlive the app after a crash (shell watchdog on Linux/macOS, job object on Windows)
 - `core/photo_loader.py`: converts paths into `PhotoInfo` using single-file and bulk metadata reads
@@ -45,9 +46,12 @@ Key objectives:
 ### Desktop GUI
 
 - `gui/main_window.py`: shell window, menus, status row messages, selection bar state, undo/redo actions
-- `gui/background.py`: one background thread for loading GPS data and thumbnails; waits for the running job before the app exits
-- `gui/thumbnail_loader.py`: thumbnail generation (JPEG and embedded RAW previews, cropped and rotated upright), fallback icons, GPS badge overlay, and icon caching
-- `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
+- `gui/background.py`: one background thread for loading GPS data and thumbnails; results go back to the GUI thread through a plain Python queue (a data-free signal only wakes the GUI thread; passing Python objects through queued signals crashed on Windows); waits for the running job before the app exits
+- `gui/thumbnail_loader.py`: thumbnail generation, cheapest source first: the shared Linux thumbnail cache, embedded previews (RAW previews; the small EXIF thumbnail near the start of JPEGs), then the whole JPEG; cropped and rotated upright; fallback icons, GPS badge overlay, and icon caching
+- `gui/system_thumbnails.py`: reads and writes the freedesktop.org thumbnail cache (`~/.cache/thumbnails`) shared with Nemo/Nautilus; PNG labels are read directly because Qt can't read `Thumb::MTime`
+- `gui/error_log.py`: `error-log.txt` in the app's data folder (Windows: `%LOCALAPPDATA%\Photo GPS Editor\Photo GPS Editor`); unexpected errors (with a pop-up), Qt warnings/fatals, hard-crash call stacks (faulthandler), and low-level stderr in windowed builds
+- `gui/gc_guard.py`: automatic garbage collection is off; a timer collects on the GUI thread between events
+- `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), `photo_picker.py` (the Add Photos picker), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
 - `gui/presenters/`: UI-facing view-state builders; `inspector_state.py` holds the inspector logic with no Qt code
 - `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, and apply/remove workflows
 
@@ -61,7 +65,7 @@ test enforces this).
 
 ### Left: Photo List
 
-- Navy `PHOTO LIST` header with `+ Add Photos` (adds to the list, skipping photos already in it; GPS data and thumbnails load in the background) and `Clear List` (files are never deleted)
+- Navy `PHOTO LIST` header with `+ Add Photos` (opens the picker, below; adds to the list, skipping photos already in it; GPS data and thumbnails load in the background) and `Clear List` (files are never deleted)
 - A list that was empty opens on `Needs GPS` (or `All` if none need GPS); adding to a list keeps the current view
 - `Show` filter: `All`, `Needs GPS`, `Has GPS`, with counts; then, after a gap, the `Only Show Selected Photos` toggle (enabled with a selection; shows the selection, fades photos deselected there in place, and turns off when a view button is clicked)
 - The selection is the same in every view; photos hidden by the view stay selected and are still acted on
@@ -115,12 +119,19 @@ test enforces this).
 - Undo/redo memory is replaced by the next apply/clear action; adding, removing, or clearing photos does not clear it
 - Memory is not written to disk and is cleared on program exit
 
+### Add Photos picker
+
+- The app's own picker replaces the system file dialogs (they mix folders and photos; on Linux choosing both silently does nothing). Used by `+ Add Photos` and, in one-photo mode, by `From a Photo on Your Computer`
+- Opened modal but non-blocking (`open()` plus a callback): a blocking `exec()` ran a nested event loop that crashed the Windows build when background results arrived
+- Left: folder tree with My Computer (user folders), Bookmarks (Linux file manager bookmarks, without repeats of user folders), Devices/Drives (mounted drives), Network (mounted shares, named like `photo on nas.local`). Folders expand on demand; an arrow shows only for folders with subfolders; hidden folders are left out like each system's file manager. The current folder is highlighted (navy) and the tree opens down to it. Folder icons come from Qt's style, not the system shell
+- Top: Back, Forward, Up, and a path box (type or paste a folder; UNC paths like `\\server\share` work on Windows)
+- Right: only photos, as thumbnails with GPS badges; same click/Shift-click/Select All rules and selection bar as the Photo List; photos already in the Photo List are marked "In Photo List" and can't be selected. Tiles appear at once as placeholders; thumbnails fill in batch by batch, then GPS badges in a second pass
+- One-photo mode: a click selects one photo, double-click chooses it, button `Use This Photo's Location`
+- Opens in the last folder used (also after cancelling)
+- Windows: unmapped network shares don't appear in the tree (File Explorer's Network lists discovered computers); mapped drives appear under Drives. macOS: no Bookmarks section. Neither has a shared thumbnail cache, so only embedded previews speed things up there
+
 ## Known Issue
 
-- Portrait orientation in the OS/Qt file picker may still appear sideways.
-- Main app thumbnails already display portrait orientation correctly.
-- This is likely controlled by the native file dialog and is not currently urgent.
-- In the Linux (GTK) file picker, selecting folders together with files makes `Open` do nothing; this is the picker's behavior, explained in the Linux picker title. Trying a different Linux picker is on the to-do list.
 - Qt icon mode loses track of photo positions when a hidden photo's thumbnail changes; the grid is re-laid out after that (see `_relayout_after_hidden_icon_change`).
 
 ## Future Ideas

@@ -230,9 +230,17 @@ class ExifToolWrapper:
         """
         return self.read_embedded_previews([path]).get(path)
 
-    def read_embedded_previews(self, paths: list[Path]) -> dict[Path, EmbeddedPreview]:
+    def read_embedded_previews(
+        self,
+        paths: list[Path],
+        tags: tuple[str, ...] = EMBEDDED_PREVIEW_TAGS,
+    ) -> dict[Path, EmbeddedPreview]:
         """
         Read the JPEG previews stored inside RAW files, for thumbnails.
+
+        tags limits which preview types are tried, for example only
+        ("ThumbnailImage",) for JPEG photos: their small thumbnail sits near
+        the start of the file, while larger previews can be near the end.
 
         Small thumbnails already captured by read_gps_many() are used without
         opening the file again. Otherwise one ExifTool command is used per
@@ -263,7 +271,7 @@ class ExifToolWrapper:
 
         remaining = [path for path in paths if path not in previews]
 
-        for tag in EMBEDDED_PREVIEW_TAGS:
+        for tag in tags:
             candidates = [
                 path for path in remaining
                 if not (tag == "ThumbnailImage" and path in known_without_thumbnail)

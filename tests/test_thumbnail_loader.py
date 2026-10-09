@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -111,6 +112,50 @@ class RawThumbnailTests(unittest.TestCase):
         self.assertEqual(reader_calls, [[first, second]])
         self.assertEqual(set(images), {first, jpeg, second})
         self.assertTrue(all(image is not None and not image.isNull() for image in images.values()))
+
+    def test_jpeg_uses_its_small_embedded_thumbnail_before_reading_the_photo(self) -> None:
+        with_thumbnail = self.folder / "with.jpg"
+        without_thumbnail = self.folder / "without.jpg"
+        Image.new("RGB", (10, 10)).save(with_thumbnail)
+        Image.new("RGB", (10, 10)).save(without_thumbnail)
+        small_calls = []
+
+        def small_reader(paths):
+            small_calls.append(list(paths))
+            return {with_thumbnail: EmbeddedPreview(_jpeg_bytes(120, 80), 1)}
+
+        loader = ThumbnailLoader(thumbnail_size=64, small_preview_reader=small_reader)
+        images = loader.load_images([with_thumbnail, without_thumbnail])
+
+        self.assertEqual(small_calls, [[with_thumbnail, without_thumbnail]])
+        # From the wide 120x80 embedded thumbnail, not the square photo.
+        self.assertGreater(images[with_thumbnail].width(), images[with_thumbnail].height())
+        # No embedded thumbnail: the (square) photo itself is read.
+        image = images[without_thumbnail]
+        self.assertEqual(image.width(), image.height())
+
+    def test_system_cache_is_used_first_and_filled(self) -> None:
+        cache = self.folder / "cache"
+        photo = self.folder / "photo.jpg"
+        Image.new("RGB", (10, 10)).save(photo)
+        small_calls = []
+
+        def small_reader(paths):
+            small_calls.append(list(paths))
+            return {}
+
+        loader = ThumbnailLoader(thumbnail_size=64, small_preview_reader=small_reader)
+        loader.use_system_cache = True
+        with patch("gui.system_thumbnails.cache_root", return_value=cache):
+            loader.load_images([photo])
+            self.assertEqual(len(list((cache / "normal").iterdir())), 1)
+
+            small_calls.clear()
+            image = loader.load_images([photo])[photo]
+
+        # The second time, the saved thumbnail is used; the photo isn't read.
+        self.assertEqual(small_calls, [])
+        self.assertIsNotNone(image)
 
     def test_icons_are_cached_after_icon_from_image(self) -> None:
         raw = self._raw_file("cached.cr3")

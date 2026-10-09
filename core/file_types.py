@@ -1,7 +1,7 @@
 from pathlib import Path
 
-# Single source of truth for which files the app can open. The file picker's
-# filter is built from these too, so the two lists cannot drift apart.
+# Single source of truth for which files the app can open (the Add Photos
+# picker lists only these).
 JPEG_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -23,15 +23,3 @@ def is_supported_file(path: Path) -> bool:
 def is_raw_file(path: Path) -> bool:
     return path.suffix.lower() in RAW_EXTENSIONS
 
-
-def file_dialog_patterns() -> str:
-    """
-    Space-separated wildcard patterns for a file picker, such as "*.jpg *.JPG".
-
-    Both cases are listed because file pickers on Linux match case-sensitively.
-    """
-    patterns: list[str] = []
-    for extension in sorted(SUPPORTED_EXTENSIONS):
-        patterns.append(f"*{extension}")
-        patterns.append(f"*{extension.upper()}")
-    return " ".join(patterns)

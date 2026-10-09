@@ -17,6 +17,7 @@ Rules for work functions:
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -51,15 +52,19 @@ class BackgroundRunner(QObject):
     instead. Tests use this to keep existing synchronous checks working.
     """
 
-    # (callback, value): delivered to the GUI thread by a queued connection.
-    _delivered = Signal(object, object)
+    # Tells the GUI thread that results are waiting in _results. It carries
+    # no data on purpose: passing Python objects through a queued Qt signal
+    # from a Python thread crashed the Windows build (PySide frees them on
+    # the wrong side). Results travel in a plain Python queue instead.
+    _results_waiting = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self.run_inline = False
         self._jobs: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
-        self._delivered.connect(self._deliver, Qt.QueuedConnection)
+        self._results: queue.SimpleQueue = queue.SimpleQueue()
+        self._results_waiting.connect(self._deliver_results, Qt.QueuedConnection)
 
         # Guards _closed and _busy, which shutdown() relies on.
         self._state = threading.Condition()
@@ -102,7 +107,8 @@ class BackgroundRunner(QObject):
         if self.run_inline:
             callback(value)
         else:
-            self._delivered.emit(callback, value)
+            self._results.put((callback, value))
+            self._results_waiting.emit()
 
     def shutdown(self, timeout: float = 5.0) -> bool:
         """
@@ -165,5 +171,18 @@ class BackgroundRunner(QObject):
                     self._busy = False
                     self._state.notify_all()
 
-    def _deliver(self, callback, value) -> None:
-        callback(value)
+    def _deliver_results(self) -> None:
+        """
+        GUI thread: run the callbacks for every result waiting. One wake-up
+        may find several results (or none, if an earlier one took them all).
+        """
+        while True:
+            try:
+                callback, value = self._results.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                callback(value)
+            except Exception:
+                # Report it (see error_log.py) and keep delivering the rest.
+                sys.excepthook(*sys.exc_info())

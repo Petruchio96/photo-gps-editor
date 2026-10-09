@@ -52,6 +52,14 @@ class PhotoWorkflowFacade:
         """
         return self.writer.read_embedded_previews(paths)
 
+    def read_small_previews(self, paths: list[Path]) -> dict[Path, EmbeddedPreview]:
+        """
+        Return the small thumbnails stored near the start of photo files
+        (JPEG EXIF thumbnails). Reading them avoids reading whole photos,
+        which is slow for large photos on network shares.
+        """
+        return self.writer.read_embedded_previews(paths, tags=("ThumbnailImage",))
+
     def refresh_photo_workflow(self, session: WorkflowSession) -> WorkflowSession:
         return refresh_photo_workflow(session, self.loader, self.metadata_cache)
 

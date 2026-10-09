@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from PIL import Image, UnidentifiedImageError
-from PySide6.QtCore import QBuffer, QByteArray, QRectF, QSize, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -30,6 +30,7 @@ from PySide6.QtGui import (
 )
 
 from core.file_types import JPEG_EXTENSIONS, is_raw_file
+from gui import system_thumbnails
 from core.models import EmbeddedPreview
 from core.runtime_paths import resource_path
 
@@ -62,6 +63,8 @@ class ThumbnailLoader:
         self,
         thumbnail_size: int = 128,
         preview_reader: PreviewReader | None = None,
+        small_preview_reader: PreviewReader | None = None,
+        use_system_cache: bool = False,
     ) -> None:
         """
         Store the target thumbnail size in pixels.
@@ -72,9 +75,19 @@ class ThumbnailLoader:
             preview_reader:
                 Reads embedded previews from RAW files. Without one, RAW files
                 get the fallback icon.
+            small_preview_reader:
+                Reads the small thumbnails stored at the start of JPEG files,
+                so a whole (possibly large, possibly network) photo doesn't
+                have to be read. Without one, JPEGs are read in full.
+            use_system_cache:
+                Use and fill the Linux file managers' shared thumbnail cache
+                (see system_thumbnails.py). Off by default so tests never touch
+                the user's real cache.
         """
         self.thumbnail_size = thumbnail_size
         self.preview_reader = preview_reader
+        self.small_preview_reader = small_preview_reader
+        self.use_system_cache = use_system_cache and system_thumbnails.is_supported()
         self._icon_cache: dict[tuple[str, int | None, bool], QIcon] = {}
 
         # Store the path to the overlay icon used for photos that already have
@@ -122,32 +135,54 @@ class ThumbnailLoader:
 
     def load_images(self, paths: list[Path]) -> dict[Path, QImage | None]:
         """
-        Read thumbnail-sized images for many files.
+        Read thumbnail-sized images for many files, cheapest source first:
+
+        1. The system thumbnail cache (Linux), a small local file.
+        2. The preview stored inside the photo: for RAW files the embedded
+           JPEG previews, for JPEGs their small EXIF thumbnail near the start
+           of the file.
+        3. The whole JPEG (only when it has no thumbnail inside).
+
+        Thumbnails made from 2 or 3 are saved to the system cache.
 
         Safe to call on a background thread: it only uses QImage, never
-        QPixmap or widgets, and does not touch the icon cache. RAW previews
-        for the whole list are read in one batch.
+        QPixmap or widgets, and does not touch the icon cache. Embedded
+        previews for the whole list are read in one batch.
 
         Returns:
             {path: image} for every path; None where no image could be made.
         """
-        raw_paths = [path for path in paths if is_raw_file(path)]
-        previews: dict[Path, EmbeddedPreview] = {}
-        if raw_paths and self.preview_reader is not None:
-            try:
-                previews = self.preview_reader(raw_paths)
-            except Exception:
-                # Thumbnails are a convenience; fall back to icons on any failure.
-                previews = {}
-
         images: dict[Path, QImage | None] = {}
-        for path in paths:
-            if path.suffix.lower() in JPEG_EXTENSIONS:
-                images[path] = self._read_jpeg_image(path)
-            elif path in previews:
-                images[path] = self._preview_to_image(previews[path])
-            else:
-                images[path] = None
+        if self.use_system_cache:
+            for path in paths:
+                cached = system_thumbnails.read(path, self.thumbnail_size)
+                if cached is not None:
+                    images[path] = cached
+        remaining = [path for path in paths if path not in images]
+
+        raw_paths = [path for path in remaining if is_raw_file(path)]
+        jpeg_paths = [path for path in remaining if path.suffix.lower() in JPEG_EXTENSIONS]
+        previews: dict[Path, EmbeddedPreview] = {}
+        for reader, reader_paths in (
+            (self.preview_reader, raw_paths),
+            (self.small_preview_reader, jpeg_paths),
+        ):
+            if reader_paths and reader is not None:
+                try:
+                    previews.update(reader(reader_paths))
+                except Exception:
+                    # Thumbnails are a convenience; fall back on any failure.
+                    pass
+
+        for path in remaining:
+            image = None
+            if path in previews:
+                image = self._preview_to_image(previews[path])
+            if image is None and path.suffix.lower() in JPEG_EXTENSIONS:
+                image = self._read_jpeg_image(path)
+            images[path] = image
+            if image is not None and self.use_system_cache:
+                system_thumbnails.write(path, image)
         return images
 
     def icon_from_image(self, path: Path, has_gps: bool, image: QImage | None) -> QIcon:
@@ -182,26 +217,19 @@ class ThumbnailLoader:
         Decode an embedded preview at thumbnail size, trim any padding, and
         rotate it upright.
         """
-        buffer = QBuffer()
-        buffer.setData(QByteArray(preview.jpeg_bytes))
-        buffer.open(QBuffer.ReadOnly)
-        reader = QImageReader(buffer)
-        # Use the RAW file's orientation, not any tag inside the preview.
-        reader.setAutoTransform(False)
-
-        size = reader.size()
-        if size.isValid():
-            scaled_size = QSize(size)
-            scaled_size.scale(
-                self.thumbnail_size,
-                self.thumbnail_size,
-                Qt.KeepAspectRatio,
-            )
-            reader.setScaledSize(scaled_size)
-
-        image = reader.read()
+        # Decoded straight from the bytes: a QBuffer (a QObject) must not be
+        # created on the background thread this runs on. Previews are small,
+        # so decoding at full size and then scaling is cheap. The RAW file's
+        # orientation is applied below, not any tag inside the preview.
+        image = QImage.fromData(preview.jpeg_bytes)
         if image.isNull():
             return None
+        image = image.scaled(
+            self.thumbnail_size,
+            self.thumbnail_size,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
 
         if preview.image_width and preview.image_height:
             image = _crop_to_aspect(image, preview.image_width, preview.image_height)

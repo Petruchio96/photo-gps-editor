@@ -424,6 +424,71 @@ QPushButton#filterButton[filter="has"]:checked:disabled {
     background: #8fbf9f;
     border-color: #8fbf9f;
 }
+QDialog#photoPicker {
+    background: #eef3f8;
+}
+QFrame#pickerNav {
+    background: #f6f9fc;
+    border: none;
+    border-bottom: 1px solid #d6dfe8;
+}
+QPushButton#pickerNavButton {
+    padding: 0px;
+    border-radius: 8px;
+    font-size: 16px;
+    color: #31445a;
+}
+QLineEdit#pickerPath[error="true"] {
+    border: 1px solid #c62828;
+    background: #fff5f5;
+}
+QTreeWidget#pickerTree {
+    background: #fbfdff;
+    border: none;
+    border-right: 1px solid #d6dfe8;
+    padding: 8px 6px;
+    outline: none;
+    font-size: 14px;
+}
+QTreeWidget#pickerTree::item {
+    padding: 4px 6px;
+    border-radius: 8px;
+    color: #23384f;
+}
+QTreeWidget#pickerTree::item:hover {
+    background: #e7eef6;
+}
+QTreeWidget#pickerTree::item:selected {
+    background: #26425f;
+    color: #ffffff;
+    font-weight: 700;
+}
+QLabel#pickerSummary,
+QLabel#pickerNote {
+    color: #556579;
+    font-size: 13px;
+}
+QLabel#pickerEmpty {
+    color: #7a8899;
+    font-size: 15px;
+    background: transparent;
+}
+QPushButton#pickerAddButton {
+    background: #26425f;
+    color: #ffffff;
+    border: 1px solid #26425f;
+    padding: 10px 18px;
+    font-weight: 700;
+}
+QPushButton#pickerAddButton:hover {
+    background: #1d3550;
+    border-color: #1d3550;
+}
+QPushButton#pickerAddButton:disabled {
+    color: #8c9aa8;
+    background: #f5f7f9;
+    border-color: #d7dee5;
+}
 QPushButton#onlySelectedButton {
     background: #ffffff;
     color: #31445a;

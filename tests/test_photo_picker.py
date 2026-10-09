@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton, QTreeWidgetItem
 
 from core.models import PhotoInfo
 from core.places import Place
@@ -181,6 +181,18 @@ class PhotoPickerTests(unittest.TestCase):
         trip.setExpanded(True)
 
         self.assertEqual([trip.child(index).text(0) for index in range(trip.childCount())], ["2019"])
+
+    def test_only_folders_with_subfolders_get_an_expand_arrow(self) -> None:
+        dialog = self._open(self.other)
+        trip = self._tree_item(dialog, "My Trip")
+        other = self._tree_item(dialog, "Other")
+
+        self.assertEqual(trip.childIndicatorPolicy(), QTreeWidgetItem.ShowIndicator)
+        self.assertEqual(other.childIndicatorPolicy(), QTreeWidgetItem.DontShowIndicator)
+
+        trip.setExpanded(True)
+        year = trip.child(0)
+        self.assertEqual(year.childIndicatorPolicy(), QTreeWidgetItem.DontShowIndicator)
 
     def test_opening_a_nested_folder_opens_the_tree_down_to_it(self) -> None:
         dialog = self._open(self.year)

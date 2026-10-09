@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from core.places import (
     Place,
     gvfs_share_name,
+    has_subfolders,
     is_hidden,
     is_network_file_system,
     is_system_mount,
@@ -149,6 +150,15 @@ class FolderListingTests(unittest.TestCase):
             [path.name for path in list_subfolders(self.root)],
             ["apples", "folder.jpg", "Zoo"],
         )
+
+    def test_has_subfolders(self) -> None:
+        self.assertTrue(has_subfolders(self.root))
+        # Only photos inside, or only a hidden folder: no subfolders.
+        self.assertFalse(has_subfolders(self.root / "apples"))
+        (self.root / "apples" / "photo.jpg").write_bytes(b"")
+        (self.root / "apples" / ".thumbs").mkdir()
+        self.assertFalse(has_subfolders(self.root / "apples"))
+        self.assertFalse(has_subfolders(self.root / "gone"))
 
     def test_missing_folder_lists_nothing(self) -> None:
         missing = self.root / "gone"

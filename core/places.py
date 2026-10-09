@@ -219,6 +219,18 @@ def list_subfolders(folder: Path) -> list[Path]:
     return sorted(folders, key=lambda path: path.name.casefold())
 
 
+def has_subfolders(folder: Path) -> bool:
+    """
+    True if a folder has at least one visible folder inside. Stops at the
+    first one, so it stays quick for folders holding many photos.
+    """
+    try:
+        with os.scandir(folder) as entries:
+            return any(_is_dir(entry) and not is_hidden(entry) for entry in entries)
+    except OSError:
+        return False
+
+
 def list_photos(folder: Path) -> list[Path]:
     """
     The photos the app can open in a folder (not its subfolders), sorted by

@@ -56,6 +56,7 @@ from core.places import (
     GVFS_FILE_SYSTEM,
     Place,
     gvfs_share_name,
+    has_subfolders,
     is_network_file_system,
     is_system_mount,
     list_photos,
@@ -563,9 +564,14 @@ class PhotoPickerDialog(QDialog):
         item.setData(0, PATH_ROLE, str(path))
         item.setToolTip(0, str(path))
         item.setIcon(0, self._folder_icon)
-        # Show an expand arrow until the subfolders are listed (listing every
-        # folder up front would be slow on network shares).
-        item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        # An expand arrow only if it has subfolders. The subfolders themselves
+        # are listed when it is expanded (listing every folder up front would
+        # be slow on network shares).
+        item.setChildIndicatorPolicy(
+            QTreeWidgetItem.ShowIndicator
+            if has_subfolders(path)
+            else QTreeWidgetItem.DontShowIndicator
+        )
         return item
 
     def _load_subfolders(self, item: QTreeWidgetItem) -> None:

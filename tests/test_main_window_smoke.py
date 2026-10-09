@@ -515,7 +515,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             def setWindowModality(self, modality) -> None:
                 pass
 
-            def open(self) -> None:
+            def show(self) -> None:
                 # Closes at once, as if the user chose (or cancelled).
                 result = QDialog.Accepted if accept else QDialog.Rejected
                 for slot in self.finished.slots:

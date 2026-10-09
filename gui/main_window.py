@@ -534,8 +534,8 @@ class MainWindow(
         on_chosen: Callable[[list[Path]], None],
     ) -> None:
         """
-        Show the picker without blocking: it is modal, but the app keeps
-        running its one event loop. A blocking exec() ran a second event loop
+        Show the picker without blocking the code: it is modal, but the app
+        keeps running its one event loop. A blocking exec() ran a second event loop
         inside the button's click, and the Windows build crashed when
         background results arrived inside it.
         """
@@ -561,8 +561,11 @@ class MainWindow(
                 on_chosen(paths)
 
         dialog.finished.connect(closed)
-        dialog.setWindowModality(Qt.WindowModal)
-        dialog.open()
+        # Application-modal and shown with show(), not open(): open() makes
+        # it a sheet on macOS (stuck to the main window's title bar). This
+        # is a normal window on every system that blocks the rest of the app.
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.show()
 
     def _photo_picker_start_folder(self) -> Path:
         """

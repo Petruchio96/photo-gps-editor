@@ -5,14 +5,13 @@ Main application window.
 from __future__ import annotations
 
 import html
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QFileDialog,
+    QDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -21,13 +20,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.file_types import file_dialog_patterns
 from core.runtime_paths import resource_path
 from gui.background import BackgroundRunner
 from gui.styles import APP_STYLESHEET
 from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
 from gui.widgets.editor_panel import build_editor_panel
+from gui.widgets.photo_picker import PhotoPickerDialog
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
 from gui.window_mixins.inspector import InspectorMixin
 from gui.window_mixins.location_editor import LocationEditorMixin
@@ -80,6 +79,8 @@ class MainWindow(
         self.thumbnail_loader = ThumbnailLoader(
             thumbnail_size=128,
             preview_reader=self.workflow.read_embedded_previews,
+            small_preview_reader=self.workflow.read_small_previews,
+            use_system_cache=True,
         )
 
         self.session = WorkflowSession()
@@ -503,39 +504,39 @@ class MainWindow(
                 return Path(candidate)
         return Path.home()
 
-    def _photo_file_filter(self) -> str:
-        return f"Images ({file_dialog_patterns()})"
-
     def _pick_photo_files(self, title: str) -> list[Path]:
-        if sys.platform.startswith("linux"):
-            # Linux's (GTK) picker silently ignores Open when folders are
-            # selected along with photos, and the app is never told, so put
-            # the rule where it is visible while choosing.
-            title = f"{title} — select photos only, or open one folder"
-        file_paths, _ = QFileDialog.getOpenFileNames(
+        """
+        Choose photos to add with the app's own picker (folder tree on the
+        left, only photos on the right). The system pickers mix folders and
+        photos, and on Linux choosing both at once silently does nothing.
+        """
+        return self._run_photo_picker(title, single=False)
+
+    def _run_photo_picker(self, title: str, *, single: bool) -> list[Path]:
+        dialog = PhotoPickerDialog(
             self,
-            title,
-            str(self._photo_picker_start_folder()),
-            self._photo_file_filter(),
+            title=title,
+            start_folder=self._photo_picker_start_folder(),
+            in_list=set(self.session.selected_paths),
+            workflow=self.workflow,
+            thumbnail_loader=self.thumbnail_loader,
+            background=self.background,
+            single=single,
         )
-        paths = [Path(path) for path in file_paths]
-        if paths:
-            self._remember_photo_folder(paths[0].parent)
-        return paths
+        # Kept until the next picker opens, so background results that arrive
+        # after it closes still find a live (ignored) object.
+        self._photo_picker = dialog
+        accepted = dialog.exec() == QDialog.Accepted
+        if dialog.current_folder is not None:
+            self._remember_photo_folder(dialog.current_folder)
+        return dialog.selected_paths() if accepted else []
 
     def _pick_photo_file(self, title: str) -> Path | None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            title,
-            str(self._photo_picker_start_folder()),
-            self._photo_file_filter(),
-        )
-        if not file_path:
-            return None
-
-        path = Path(file_path)
-        self._remember_photo_folder(path.parent)
-        return path
+        """
+        Choose one photo (to use its location) with the app's picker.
+        """
+        paths = self._run_photo_picker(title, single=True)
+        return paths[0] if paths else None
 
     def _photo_picker_start_folder(self) -> Path:
         """

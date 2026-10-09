@@ -23,6 +23,10 @@ from PySide6.QtWidgets import (
 # placeholder should be drawn.
 SHIMMER_ROLE = Qt.UserRole + 3
 
+# Item data role: True in the Add Photos picker on photos already in the
+# Photo List. They are drawn washed out with "In Photo List".
+IN_LIST_ROLE = Qt.UserRole + 8
+
 # Item data role: on group heading items, "no_gps" or "gps".
 GROUP_HEADER_ROLE = Qt.UserRole + 4
 
@@ -72,7 +76,9 @@ class ThumbnailDelegate(QStyledItemDelegate):
             return
         super().paint(painter, option, index)
         if index.data(PICK_DISABLED_ROLE):
-            _paint_unpickable(painter, option)
+            _paint_washed_out(painter, option, "No GPS")
+        elif index.data(IN_LIST_ROLE):
+            _paint_washed_out(painter, option, "In Photo List")
         elif index.data(FADED_ROLE):
             painter.fillRect(option.rect, QColor(255, 255, 255, 170))
         if index.data(SOURCE_ROLE):
@@ -152,16 +158,16 @@ def _paint_source_marker(painter: QPainter, option) -> None:
     painter.restore()
 
 
-def _paint_unpickable(painter: QPainter, option) -> None:
+def _paint_washed_out(painter: QPainter, option, label: str) -> None:
     """
-    Wash out a photo that cannot be picked (no GPS) and label it "No GPS".
+    Wash out a photo that cannot be picked and label it, for example
+    "No GPS" while picking a location.
     """
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     rect = QRectF(option.rect)
     painter.fillRect(rect, QColor(244, 246, 249, 205))
 
-    label = "No GPS"
     font = painter.font()
     font.setBold(True)
     painter.setFont(font)

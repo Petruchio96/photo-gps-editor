@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -353,6 +354,26 @@ class BackgroundRunnerTests(unittest.TestCase):
         self.assertNotEqual(done[1], threading.main_thread().name)
         self.assertTrue(done[2])
         self.assertEqual(error, ("error", "boom", True))
+
+    def test_posted_results_arrive_in_order_and_survive_a_failing_callback(self) -> None:
+        runner = BackgroundRunner()
+        self.addCleanup(runner.shutdown)
+        received = []
+
+        def fail(_value):
+            raise ValueError("callback broke")
+
+        def work():
+            runner.post(fail, None)
+            for number in range(50):
+                runner.post(received.append, {"batch": number, "images": [object()] * 3})
+
+        with patch("sys.excepthook") as excepthook:
+            runner.submit(work, lambda _: None)
+            self.assertTrue(wait_until(lambda: len(received) == 50))
+
+        self.assertEqual([value["batch"] for value in received], list(range(50)))
+        excepthook.assert_called_once()
 
     def test_shutdown_waits_for_running_job_and_drops_queued_ones(self) -> None:
         runner = BackgroundRunner()

@@ -111,10 +111,12 @@ class HiddenTests(unittest.TestCase):
         for platform in ("linux", "win32", "darwin"):
             self.assertTrue(is_hidden(FakeEntry(".cache"), platform))
 
-    def test_windows_hidden_and_system_attributes(self) -> None:
+    def test_windows_hidden_attribute(self) -> None:
         self.assertTrue(is_hidden(FakeEntry("AppData", attributes=0x2), "win32"))
-        self.assertTrue(is_hidden(FakeEntry("desktop.ini", attributes=0x4), "win32"))
+        self.assertTrue(is_hidden(FakeEntry("desktop.ini", attributes=0x2 | 0x4), "win32"))
         self.assertFalse(is_hidden(FakeEntry("Pictures", attributes=0x10), "win32"))
+        # "System" alone (a folder with a custom icon) shows, as in File Explorer.
+        self.assertFalse(is_hidden(FakeEntry("2026", attributes=0x10 | 0x4), "win32"))
 
     def test_mac_hidden_flag(self) -> None:
         self.assertTrue(is_hidden(FakeEntry("Library", flags=0x8000), "darwin"))

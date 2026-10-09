@@ -159,8 +159,10 @@ def is_system_mount(mount_path: str, file_system: str) -> bool:
     )
 
 
-# Windows file attributes for hidden and system files (AppData, desktop.ini).
-_WINDOWS_HIDDEN = getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0x2) | getattr(stat, "FILE_ATTRIBUTE_SYSTEM", 0x4)
+# Windows "hidden" attribute (AppData, desktop.ini). File Explorer hides
+# these by default; "system" alone is not hidden (Windows sets it on some
+# ordinary folders, for example ones with a custom icon).
+_WINDOWS_HIDDEN = getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0x2)
 # macOS "hidden" flag (Finder hides ~/Library this way).
 _MAC_HIDDEN = getattr(stat, "UF_HIDDEN", 0x8000)
 
@@ -168,8 +170,8 @@ _MAC_HIDDEN = getattr(stat, "UF_HIDDEN", 0x8000)
 def is_hidden(entry: os.DirEntry, platform: str = sys.platform) -> bool:
     """
     True for files and folders the system's file manager hides: names
-    starting with "." everywhere, plus Windows' hidden/system attribute and
-    macOS's hidden flag.
+    starting with "." everywhere, plus Windows' hidden attribute and macOS's
+    hidden flag.
     """
     if entry.name.startswith("."):
         return True

@@ -87,9 +87,14 @@ class PhotoListMixin:
 
     def add_photos(self) -> None:
         """
+        Choose photos to add to the list (see _add_chosen_photos).
+        """
+        self._pick_photo_files("Add Photos", self._add_chosen_photos)
+
+    def _add_chosen_photos(self, file_paths: list[Path]) -> None:
+        """
         Add photos to the list. Photos already in it are skipped.
         """
-        file_paths = self._pick_photo_files("Add Photos")
         if not file_paths:
             return
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import faulthandler
+import os
 import sys
 import threading
 import traceback
@@ -121,6 +122,13 @@ def install() -> Path | None:
     # Windowed builds have no console; send stray output to the log.
     if sys.stderr is None:
         sys.stderr = _log_file
+        # Also the low-level error output, where Python and the C runtime
+        # write the reason for an abort ("Fatal Python error: ...") just
+        # before it happens. Without a console that text is otherwise lost.
+        try:
+            os.dup2(_log_file.fileno(), 2)
+        except OSError:
+            pass
     if sys.stdout is None:
         sys.stdout = _log_file
     return path

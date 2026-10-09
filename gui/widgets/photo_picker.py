@@ -37,7 +37,6 @@ from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QP
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
-    QFileIconProvider,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -46,6 +45,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSplitter,
+    QStyle,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -348,7 +348,9 @@ class PhotoPickerDialog(QDialog):
         self._workflow = workflow
         self._thumbnail_loader = thumbnail_loader
         self._background = background
-        self._icon_provider = QFileIconProvider()
+        # Qt's own folder icon. QFileIconProvider asks the system shell for
+        # icons, which on Windows has caused crashes elsewhere in the app.
+        self._folder_icon = self.style().standardIcon(QStyle.SP_DirIcon)
 
         self.current_folder: Path | None = None
         self._back: list[Path] = []
@@ -560,7 +562,7 @@ class PhotoPickerDialog(QDialog):
         item = QTreeWidgetItem([name])
         item.setData(0, PATH_ROLE, str(path))
         item.setToolTip(0, str(path))
-        item.setIcon(0, self._icon_provider.icon(QFileIconProvider.Folder))
+        item.setIcon(0, self._folder_icon)
         # Show an expand arrow until the subfolders are listed (listing every
         # folder up front would be slow on network shares).
         item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)

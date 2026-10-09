@@ -5,6 +5,7 @@ Main application window.
 from __future__ import annotations
 
 import html
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QSettings, QStandardPaths, Qt, QTimer
@@ -504,15 +505,40 @@ class MainWindow(
                 return Path(candidate)
         return Path.home()
 
-    def _pick_photo_files(self, title: str) -> list[Path]:
+    def _pick_photo_files(self, title: str, on_chosen: Callable[[list[Path]], None]) -> None:
         """
         Choose photos to add with the app's own picker (folder tree on the
         left, only photos on the right). The system pickers mix folders and
         photos, and on Linux choosing both at once silently does nothing.
-        """
-        return self._run_photo_picker(title, single=False)
 
-    def _run_photo_picker(self, title: str, *, single: bool) -> list[Path]:
+        on_chosen(paths) runs after the picker closes with photos chosen.
+        """
+        self._open_photo_picker(title, single=False, on_chosen=on_chosen)
+
+    def _pick_photo_file(self, title: str, on_chosen: Callable[[Path], None]) -> None:
+        """
+        Choose one photo (to use its location) with the app's picker.
+        on_chosen(path) runs after the picker closes with a photo chosen.
+        """
+        self._open_photo_picker(
+            title,
+            single=True,
+            on_chosen=lambda paths: on_chosen(paths[0]),
+        )
+
+    def _open_photo_picker(
+        self,
+        title: str,
+        *,
+        single: bool,
+        on_chosen: Callable[[list[Path]], None],
+    ) -> None:
+        """
+        Show the picker without blocking: it is modal, but the app keeps
+        running its one event loop. A blocking exec() ran a second event loop
+        inside the button's click, and the Windows build crashed when
+        background results arrived inside it.
+        """
         dialog = PhotoPickerDialog(
             self,
             title=title,
@@ -526,17 +552,17 @@ class MainWindow(
         # Kept until the next picker opens, so background results that arrive
         # after it closes still find a live (ignored) object.
         self._photo_picker = dialog
-        accepted = dialog.exec() == QDialog.Accepted
-        if dialog.current_folder is not None:
-            self._remember_photo_folder(dialog.current_folder)
-        return dialog.selected_paths() if accepted else []
 
-    def _pick_photo_file(self, title: str) -> Path | None:
-        """
-        Choose one photo (to use its location) with the app's picker.
-        """
-        paths = self._run_photo_picker(title, single=True)
-        return paths[0] if paths else None
+        def closed(result: int) -> None:
+            if dialog.current_folder is not None:
+                self._remember_photo_folder(dialog.current_folder)
+            paths = dialog.selected_paths()
+            if result == QDialog.Accepted and paths:
+                on_chosen(paths)
+
+        dialog.finished.connect(closed)
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.open()
 
     def _photo_picker_start_folder(self) -> Path:
         """

@@ -77,6 +77,11 @@ class FakeThumbnailLoader:
         return QIcon(pixmap)
 
 
+def _choosing(chosen):
+    """Stand-in for _pick_photo_files / _pick_photo_file: "chooses" at once."""
+    return lambda _title, on_chosen: on_chosen(chosen)
+
+
 class MainWindowSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -494,13 +499,27 @@ class MainWindowSmokeTests(unittest.TestCase):
         """
         opened: list[dict] = []
 
+        class FakeSignal:
+            def __init__(self) -> None:
+                self.slots = []
+
+            def connect(self, slot) -> None:
+                self.slots.append(slot)
+
         class FakePicker:
             def __init__(self, parent, **kwargs) -> None:
                 opened.append(kwargs)
                 self.current_folder = folder
+                self.finished = FakeSignal()
 
-            def exec(self):
-                return QDialog.Accepted if accept else QDialog.Rejected
+            def setWindowModality(self, modality) -> None:
+                pass
+
+            def open(self) -> None:
+                # Closes at once, as if the user chose (or cancelled).
+                result = QDialog.Accepted if accept else QDialog.Rejected
+                for slot in self.finished.slots:
+                    slot(result)
 
             def selected_paths(self):
                 return list(chosen)
@@ -514,21 +533,26 @@ class MainWindowSmokeTests(unittest.TestCase):
         with picker, patch.object(
             self.window, "_default_photo_directory", return_value=Path("/pictures")
         ):
-            self.window._pick_photo_files("Add Photos")
-            self.window._pick_photo_files("Add Photos")
-            chosen = self.window._pick_photo_file("Use the Location from a Photo")
+            chosen = []
+            self.window._pick_photo_files("Add Photos", chosen.append)
+            self.window._pick_photo_files("Add Photos", chosen.append)
+            self.window._pick_photo_file("Use the Location from a Photo", chosen.append)
 
         self.assertEqual(
             [entry["start_folder"] for entry in opened], [Path("/pictures"), folder, folder]
         )
         # Choosing a photo's location uses the picker's one-photo mode.
         self.assertEqual([entry["single"] for entry in opened], [False, False, True])
-        self.assertEqual(chosen, folder / "a.jpg")
+        self.assertEqual(chosen, [[folder / "a.jpg"], [folder / "a.jpg"], folder / "a.jpg"])
 
     def test_add_photos_picker_knows_the_photos_already_in_the_list(self) -> None:
         picker, opened = self._fake_picker(chosen=[], folder=None, accept=False)
+        chosen = []
         with picker:
-            self.assertEqual(self.window._pick_photo_files("Add Photos"), [])
+            self.window._pick_photo_files("Add Photos", chosen.append)
+
+        # Cancelled: nothing chosen.
+        self.assertEqual(chosen, [])
 
         self.assertEqual(opened[0]["title"], "Add Photos")
         self.assertEqual(opened[0]["in_list"], set(self.paths))
@@ -552,9 +576,11 @@ class MainWindowSmokeTests(unittest.TestCase):
         folder = self._photo_folder()
         picker, _opened = self._fake_picker(chosen=[], folder=folder, accept=False)
 
+        chosen = []
         with picker:
-            self.assertEqual(self.window._pick_photo_files("Add Photos"), [])
+            self.window._pick_photo_files("Add Photos", chosen.append)
 
+        self.assertEqual(chosen, [])
         self.assertEqual(self.window._photo_picker_start_folder(), folder)
 
     # --- Show filter --------------------------------------------------------
@@ -578,7 +604,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self._visible_paths(), self.paths)
 
     def _choose_photos(self, paths: list[Path]) -> None:
-        with patch.object(self.window, "_pick_photo_files", return_value=paths):
+        with patch.object(self.window, "_pick_photo_files", side_effect=_choosing(paths)):
             self.window.add_photos_button.click()
 
     def test_loaded_photos_open_on_needs_gps(self) -> None:
@@ -1085,7 +1111,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         new_path = Path("/tmp/new-photo.jpg")
         self.gps_by_path[new_path] = (None, None)
 
-        with patch.object(self.window, "_pick_photo_files", return_value=[new_path]):
+        with patch.object(self.window, "_pick_photo_files", side_effect=_choosing([new_path])):
             self.window.add_photos_button.click()
 
         self.assertEqual(self.window.session.selected_paths, [*self.paths, new_path])
@@ -1236,7 +1262,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertFalse(self.window.clear_location_button.isEnabled())
 
     def test_location_from_a_photo_file(self) -> None:
-        with patch.object(self.window, "_pick_photo_file", return_value=self.source_path):
+        with patch.object(self.window, "_pick_photo_file", side_effect=_choosing(self.source_path)):
             self.window.location_from_photo_button.click()
 
         self.assertEqual(self._new_location(), self.location)
@@ -1250,7 +1276,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             shown.append((dialog.text(), [button.text() for button in dialog.buttons()]))
             return QMessageBox.Ok
 
-        with patch.object(self.window, "_pick_photo_file", return_value=path), patch.object(
+        with patch.object(self.window, "_pick_photo_file", side_effect=_choosing(path)), patch.object(
             QMessageBox, "exec", new=fake_exec
         ):
             self.window.location_from_photo_button.click()

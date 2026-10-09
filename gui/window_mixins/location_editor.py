@@ -91,12 +91,14 @@ class LocationEditorMixin:
 
     def choose_location_from_photo(self) -> None:
         """
-        Read the GPS coordinates of any photo file into New Location.
+        Choose any photo file to use its location (see use_location_from_file).
         """
-        path = self._pick_photo_file("Use the Location from a Photo")
-        if path is None:
-            return
+        self._pick_photo_file("Use the Location from a Photo", self.use_location_from_file)
 
+    def use_location_from_file(self, path: Path) -> None:
+        """
+        Read the GPS coordinates of a photo file into New Location.
+        """
         info = self.workflow.read_photo_info(path)
         if info.gps_error:
             dialog = QMessageBox(self)

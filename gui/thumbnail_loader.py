@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from PIL import Image, UnidentifiedImageError
-from PySide6.QtCore import QBuffer, QByteArray, QRectF, QSize, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -217,26 +217,19 @@ class ThumbnailLoader:
         Decode an embedded preview at thumbnail size, trim any padding, and
         rotate it upright.
         """
-        buffer = QBuffer()
-        buffer.setData(QByteArray(preview.jpeg_bytes))
-        buffer.open(QBuffer.ReadOnly)
-        reader = QImageReader(buffer)
-        # Use the RAW file's orientation, not any tag inside the preview.
-        reader.setAutoTransform(False)
-
-        size = reader.size()
-        if size.isValid():
-            scaled_size = QSize(size)
-            scaled_size.scale(
-                self.thumbnail_size,
-                self.thumbnail_size,
-                Qt.KeepAspectRatio,
-            )
-            reader.setScaledSize(scaled_size)
-
-        image = reader.read()
+        # Decoded straight from the bytes: a QBuffer (a QObject) must not be
+        # created on the background thread this runs on. Previews are small,
+        # so decoding at full size and then scaling is cheap. The RAW file's
+        # orientation is applied below, not any tag inside the preview.
+        image = QImage.fromData(preview.jpeg_bytes)
         if image.isNull():
             return None
+        image = image.scaled(
+            self.thumbnail_size,
+            self.thumbnail_size,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
 
         if preview.image_width and preview.image_height:
             image = _crop_to_aspect(image, preview.image_width, preview.image_height)

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QStyleFactory
 from core.exiftool_wrapper import ExifToolWrapper
 from core.runtime_paths import resource_path
 from gui import error_log
+from gui.gc_guard import GuiThreadGarbageCollector
 from gui.main_window import MainWindow
 
 MISSING_EXIFTOOL_MESSAGE = (
@@ -38,6 +39,8 @@ def main() -> int:
     app.setStyle(QStyleFactory.create("Fusion"))
     app.setWindowIcon(QIcon(str(resource_path("assets/app_icon_128.png"))))
     error_log.install()
+    # Keep the reference: it runs garbage collection for the app's lifetime.
+    garbage_collector = GuiThreadGarbageCollector(app)  # noqa: F841
 
     if not exiftool_is_ready():
         return 1

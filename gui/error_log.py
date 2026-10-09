@@ -20,7 +20,7 @@ import threading
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, QTimer
+from PySide6.QtCore import QtMsgType, QStandardPaths, QTimer, qInstallMessageHandler
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 LOG_NAME = "error-log.txt"
@@ -78,6 +78,25 @@ def _handle_thread_exception(args) -> None:
     _handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
 
 
+_QT_MESSAGE_LABELS = {
+    QtMsgType.QtWarningMsg: "Qt warning",
+    QtMsgType.QtCriticalMsg: "Qt critical",
+    QtMsgType.QtFatalMsg: "Qt fatal",
+}
+
+
+def _handle_qt_message(message_type, context, message: str) -> None:
+    """
+    Qt's own warnings and errors. A Qt abort ("fatal") says why here, just
+    before the crash itself is logged.
+    """
+    label = _QT_MESSAGE_LABELS.get(message_type)
+    if label is not None:
+        _write(f"{label}: {message}")
+    if sys.__stderr__ is not None:
+        sys.__stderr__.write(f"{message}\n")
+
+
 def install() -> Path | None:
     """
     Start logging. Call once, after the QApplication exists (the log folder
@@ -92,8 +111,11 @@ def install() -> Path | None:
     except OSError:
         return None
 
+    # Crash reports carry no time of their own, so note when the app started.
+    _write("Photo GPS Editor started")
     # Hard crashes: the Python call stack of every thread.
     faulthandler.enable(file=_log_file, all_threads=True)
+    qInstallMessageHandler(_handle_qt_message)
     sys.excepthook = _handle_exception
     threading.excepthook = _handle_thread_exception
     # Windowed builds have no console; send stray output to the log.

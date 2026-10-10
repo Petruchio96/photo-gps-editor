@@ -226,10 +226,12 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertTrue(self.window.loading_indicator.isHidden())
 
     def test_about_action_opens_versioned_dialog(self) -> None:
-        with patch("gui.main_window.QMessageBox.exec") as exec_mock:
+        with patch("gui.main_window.QMessageBox.show") as show_mock:
             self.window.show_about_dialog()
 
-        exec_mock.assert_called_once()
+        show_mock.assert_called_once()
+        # Shown without blocking, but nothing else can be used meanwhile.
+        self.assertEqual(self.window._open_messages[0].windowModality(), Qt.ApplicationModal)
 
     def test_about_dialog_uses_clickable_external_repository_link(self) -> None:
         about_dialog = self.window._build_about_dialog()
@@ -1152,6 +1154,26 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.assertEqual(self.window.get_selected_paths(), [self.paths[0]])
 
+    def test_right_click_menu_opens_without_blocking_and_its_actions_work(self) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        self.gps_by_path[self.paths[1]] = (41.0, -112.0)
+        self.window.populate_list()
+
+        # Without patching: the menu must not block (a blocking menu would
+        # hang this test). Called as Qt's right-click signal calls it.
+        position = self.window.list_widget.visualItemRect(self._item_for(self.paths[1])).center()
+        self.window.show_context_menu(position)
+
+        menus = [widget for widget in QApplication.topLevelWidgets() if isinstance(widget, QMenu) and widget.isVisible()]
+        self.assertEqual(len(menus), 1)
+        menu = menus[0]
+        use_action = next(action for action in menu.actions() if action.text() == "Use This Location")
+        use_action.trigger()
+        menu.close()
+
+        self.assertEqual(self._new_location(), (41.0, -112.0))
+
     def test_context_menu_use_this_location_sets_source(self) -> None:
         self.gps_by_path[self.paths[1]] = (41.0, -112.0)
         self.window.populate_list()
@@ -1272,12 +1294,11 @@ class MainWindowSmokeTests(unittest.TestCase):
     def _browse_photo_capturing_dialogs(self, path: Path) -> list[tuple[str, list[str]]]:
         shown: list[tuple[str, list[str]]] = []
 
-        def fake_exec(dialog):
+        def fake_show(dialog):
             shown.append((dialog.text(), [button.text() for button in dialog.buttons()]))
-            return QMessageBox.Ok
 
         with patch.object(self.window, "_pick_photo_file", side_effect=_choosing(path)), patch.object(
-            QMessageBox, "exec", new=fake_exec
+            QMessageBox, "show", new=fake_show
         ):
             self.window.location_from_photo_button.click()
         return shown
@@ -1385,16 +1406,18 @@ class MainWindowSmokeTests(unittest.TestCase):
         """
         seen_buttons: list[str] = []
 
-        def fake_exec(dialog):
+        def fake_show(dialog):
             self._last_dialog_text = dialog.text()
             seen_buttons.extend(button.text() for button in dialog.buttons())
             for button in dialog.buttons():
                 if button.text() == button_text:
                     button.click()
-            return 0
+                    return
+            # No button: closed another way (Esc or the window's close box).
+            dialog.reject()
 
         # A plain function on the class becomes a method, so it receives the dialog.
-        return patch.object(QMessageBox, "exec", new=fake_exec), seen_buttons
+        return patch.object(QMessageBox, "show", new=fake_show), seen_buttons
 
     def _select_one_with_gps_and_one_without(self) -> None:
         self.gps_by_path[self.paths[0]] = (41.0, -112.0)
@@ -1489,19 +1512,19 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.gps_history.undo_states(), {self.paths[0]: (None, None)})
 
     def test_write_failure_dialog_lists_each_file(self) -> None:
-        with patch("gui.main_window.QMessageBox.exec") as exec_mock, patch(
+        with patch("gui.main_window.QMessageBox.show") as show_mock, patch(
             "gui.main_window.QMessageBox.setDetailedText"
         ) as details_mock:
             self.window._report_write_failures("apply GPS to", ["a.jpg: locked"])
 
-        exec_mock.assert_called_once()
+        show_mock.assert_called_once()
         details_mock.assert_called_once_with("a.jpg: locked")
 
     def test_no_failure_dialog_when_everything_succeeds(self) -> None:
-        with patch("gui.main_window.QMessageBox.exec") as exec_mock:
+        with patch("gui.main_window.QMessageBox.show") as show_mock:
             self.window._report_write_failures("apply GPS to", [])
 
-        exec_mock.assert_not_called()
+        show_mock.assert_not_called()
 
     # --- Undo / redo ------------------------------------------------------
 
@@ -1603,8 +1626,29 @@ class MainWindowSmokeTests(unittest.TestCase):
     # --- Remove GPS -------------------------------------------------------
 
     def _confirm_remove_gps(self, answer=QMessageBox.Ok) -> None:
-        with patch("gui.window_mixins.apply_workflow.QMessageBox.exec", return_value=answer):
+        def fake_show(dialog):
+            # "Click" the answer; the work continues when the dialog closes.
+            dialog.button(answer).click()
+
+        with patch.object(QMessageBox, "show", new=fake_show):
             self.window.remove_gps_from_selected()
+
+    def test_remove_gps_waits_for_the_real_dialog_without_blocking(self) -> None:
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.select_all_photos()
+
+        self.window.remove_gps_from_selected()
+
+        # The dialog is open and the code that opened it has returned.
+        dialog = self.window._open_messages[-1]
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(self.window.exiftool.clears, [])
+
+        QTest.mouseClick(dialog.button(QMessageBox.Ok), Qt.LeftButton)
+
+        self.assertEqual(self.window.exiftool.clears, [self.paths[0]])
+        self.assertEqual(self.window._open_messages, [])
 
     def test_remove_gps_clears_selected_photos_after_confirming(self) -> None:
         self.gps_by_path[self.paths[0]] = (41.0, -112.0)

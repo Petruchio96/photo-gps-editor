@@ -4,6 +4,7 @@ Apply and Remove GPS: the two actions on the photos selected in the grid.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -39,25 +40,40 @@ class ApplyWorkflowMixin:
             return
 
         overwrite_entries = preparation.overwrite_entries
-        skipped_count = 0
+        if not overwrite_entries:
+            self._apply_with_choice(preparation, selected_paths, "replace")
+            return
 
-        if overwrite_entries:
-            choice = self._ask_overwrite_choice(
-                overwrite_entries,
-                other_count=len(preparation.target_paths) - len(overwrite_entries),
+        # Ask first; the answer arrives when the dialog closes (no blocking
+        # exec(), see show_message).
+        self._ask_overwrite_choice(
+            overwrite_entries,
+            other_count=len(preparation.target_paths) - len(overwrite_entries),
+            on_choice=lambda choice: self._apply_with_choice(preparation, selected_paths, choice),
+        )
+
+    def _apply_with_choice(self, preparation, selected_paths: list[Path], choice: str) -> None:
+        """
+        Write the location, after the overwrite question if there was one.
+
+        Args:
+            choice:
+                "replace" (update all), "skip" (only photos without GPS), or
+                "cancel" (change nothing).
+        """
+        skipped_count = 0
+        if choice == "cancel":
+            self._set_status_message("Nothing was changed.", "info")
+            return
+        if choice == "skip":
+            # Leave photos that already have GPS untouched.
+            keep = {entry.path for entry in preparation.overwrite_entries}
+            preparation = replace(
+                preparation,
+                target_paths=[path for path in preparation.target_paths if path not in keep],
+                overwrite_entries=[],
             )
-            if choice == "cancel":
-                self._set_status_message("Nothing was changed.", "info")
-                return
-            if choice == "skip":
-                # Leave photos that already have GPS untouched.
-                keep = {entry.path for entry in overwrite_entries}
-                preparation = replace(
-                    preparation,
-                    target_paths=[path for path in preparation.target_paths if path not in keep],
-                    overwrite_entries=[],
-                )
-                skipped_count = len(keep)
+            skipped_count = len(keep)
 
         before_states = self._gps_states_for_paths(preparation.target_paths)
         apply_result = self.workflow.execute_apply_workflow(
@@ -92,7 +108,13 @@ class ApplyWorkflowMixin:
             self._set_status_message(message, "success", undo=True)
         self._report_write_failures("apply GPS to", list(result.failed_paths))
 
-    def _ask_overwrite_choice(self, overwrite_entries, *, other_count: int) -> str:
+    def _ask_overwrite_choice(
+        self,
+        overwrite_entries,
+        *,
+        other_count: int,
+        on_choice: Callable[[str], None],
+    ) -> None:
         """
         Ask what to do when some selected photos already have GPS.
 
@@ -101,10 +123,10 @@ class ApplyWorkflowMixin:
                 The selected photos that already have GPS.
             other_count:
                 How many selected photos have no GPS yet.
-
-        Returns:
-            "replace" (update all), "skip" (update only photos without GPS),
-            or "cancel" (change nothing).
+            on_choice:
+                Called when the dialog closes with "replace" (update all),
+                "skip" (update only photos without GPS), or "cancel"
+                (change nothing).
         """
         count = len(overwrite_entries)
         have = "has" if count == 1 else "have"
@@ -135,14 +157,16 @@ class ApplyWorkflowMixin:
         replace_button = dialog.addButton("Replace", QMessageBox.DestructiveRole)
         dialog.setDefaultButton(cancel_button)
         dialog.setEscapeButton(cancel_button)
-        dialog.exec()
 
-        clicked = dialog.clickedButton()
-        if clicked is replace_button:
-            return "replace"
-        if skip_button is not None and clicked is skip_button:
-            return "skip"
-        return "cancel"
+        def closed(clicked) -> None:
+            if clicked is replace_button:
+                on_choice("replace")
+            elif skip_button is not None and clicked is skip_button:
+                on_choice("skip")
+            else:
+                on_choice("cancel")
+
+        self.show_message(dialog, closed)
 
     def remove_gps_from_selected(self) -> None:
         """
@@ -171,10 +195,19 @@ class ApplyWorkflowMixin:
         confirmation_dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         confirmation_dialog.button(QMessageBox.Ok).setText("Remove GPS")
         confirmation_dialog.setDefaultButton(QMessageBox.Cancel)
+        remove_button = confirmation_dialog.button(QMessageBox.Ok)
 
-        if confirmation_dialog.exec() != QMessageBox.Ok:
-            return
+        def closed(clicked) -> None:
+            if clicked is remove_button:
+                self._remove_gps_confirmed(paths_with_gps)
 
+        # The answer arrives when the dialog closes (no blocking exec()).
+        self.show_message(confirmation_dialog, closed)
+
+    def _remove_gps_confirmed(self, paths_with_gps: list[Path]) -> None:
+        """
+        Remove GPS from these photos, after the user confirmed.
+        """
         selected_paths = self.get_selected_paths()
         before_states = self._gps_states_for_paths(paths_with_gps)
         # The backend attempts every file and reports failures instead of

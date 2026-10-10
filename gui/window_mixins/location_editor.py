@@ -106,7 +106,7 @@ class LocationEditorMixin:
             dialog.setWindowTitle("Could Not Read Photo")
             dialog.setText(f"Could not read GPS from {path.name}:\n{info.gps_error}")
             dialog.setStandardButtons(QMessageBox.Ok)
-            dialog.exec()
+            self.show_message(dialog)
             return
         if info.current_latitude is None or info.current_longitude is None:
             # No GPS, or only half of it (latitude without longitude, or the
@@ -131,7 +131,7 @@ class LocationEditorMixin:
         dialog.setWindowTitle("No GPS Coordinates")
         dialog.setText("Selected Photo has no GPS Coordinates")
         dialog.setStandardButtons(QMessageBox.Ok)
-        dialog.exec()
+        self.show_message(dialog)
 
     # --- From a Photo in the Photo List (pick mode) ---------------------------
 

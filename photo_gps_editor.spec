@@ -18,17 +18,17 @@ def existing_datas():
         (str(project_root / "assets"), "assets"),
     ]
 
+    # Linux uses the same pinned Perl distribution as macOS (downloaded by
+    # packaging/fetch_exiftool.py linux), run by the system Perl.
+    linux_exiftool = project_root / "tools" / "linux" / "exiftool"
+    linux_exiftool_lib = project_root / "tools" / "linux" / "lib"
     if sys.platform.startswith("linux"):
-        exiftool_script = Path("/usr/bin/exiftool")
-        exiftool_image_lib = Path("/usr/share/perl5/Image")
-        exiftool_file_lib = Path("/usr/share/perl5/File")
-
-        if exiftool_script.exists():
-            datas.append((str(exiftool_script), "tools/linux"))
-        if exiftool_image_lib.exists():
-            datas.append((str(exiftool_image_lib), "tools/linux/lib/Image"))
-        if exiftool_file_lib.exists():
-            datas.append((str(exiftool_file_lib), "tools/linux/lib/File"))
+        if not linux_exiftool.exists():
+            raise SystemExit(
+                "Missing tools/linux/exiftool. Run: python packaging/fetch_exiftool.py linux"
+            )
+        datas.append((str(linux_exiftool), "tools/linux"))
+        datas.append((str(linux_exiftool_lib), "tools/linux/lib"))
 
     windows_exiftool = project_root / "tools" / "windows" / "exiftool.exe"
     if windows_exiftool.exists():

@@ -9,3 +9,5 @@ tools/windows/exiftool.exe
 tools/windows/exiftool_files/
 tools/macos/exiftool
 tools/macos/lib/
+tools/linux/exiftool
+tools/linux/lib/

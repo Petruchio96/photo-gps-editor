@@ -4,22 +4,25 @@ Download ExifTool into tools/<platform>/ so PyInstaller can bundle it.
 Usage (from the repository root):
     python packaging/fetch_exiftool.py windows
     python packaging/fetch_exiftool.py macos
+    python packaging/fetch_exiftool.py linux
 
 Why this file exists:
-    Windows and macOS builds bundle their own ExifTool. This script downloads a
-    pinned ExifTool version, checks it against the published SHA-256 checksum,
+    Every build bundles its own ExifTool, so all three run the same version.
+    This script downloads a pinned ExifTool version, checks it against the published SHA-256 checksum,
     and unpacks it into the layout photo_gps_editor.spec expects:
 
         windows -> tools/windows/exiftool.exe
                    tools/windows/exiftool_files/
         macos   -> tools/macos/exiftool
                    tools/macos/lib/
+        linux   -> tools/linux/exiftool
+                   tools/linux/lib/
 
-    Linux builds use the distribution's ExifTool package instead
-    (sudo apt install libimage-exiftool-perl).
+    macOS and Linux both use ExifTool's platform-independent Perl
+    distribution (the same Image-ExifTool archive), run by the system Perl.
 
 Updating ExifTool:
-    Change EXIFTOOL_VERSION and both checksums. The checksums are listed at
+    Change EXIFTOOL_VERSION and both checksums (macOS and Linux share one). The checksums are listed at
     https://exiftool.org/checksums-<version>.txt
 """
 
@@ -47,6 +50,8 @@ DOWNLOADS = {
         "668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a",
     ),
 }
+# Linux uses the same Perl distribution as macOS.
+DOWNLOADS["linux"] = DOWNLOADS["macos"]
 
 # exiftool.org currently hosts its downloads on SourceForge.
 DOWNLOAD_URL = "https://sourceforge.net/projects/exiftool/files/{name}/download"
@@ -121,9 +126,9 @@ def install_windows(data: bytes, destination: Path) -> None:
             raise SystemExit("Could not find exiftool_files/ in the Windows archive.")
 
 
-def install_macos(data: bytes, destination: Path) -> None:
+def install_perl_distribution(data: bytes, destination: Path) -> None:
     """
-    Copy the exiftool Perl script and its lib/ folder.
+    Copy the exiftool Perl script and its lib/ folder (macOS and Linux).
     """
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         members = archive.getmembers()
@@ -133,7 +138,7 @@ def install_macos(data: bytes, destination: Path) -> None:
             and PurePosixPath(member.name).name == "exiftool"
         ]
         if len(script_members) != 1:
-            raise SystemExit("Could not find the exiftool script in the macOS archive.")
+            raise SystemExit("Could not find the exiftool script in the Perl archive.")
 
         base = PurePosixPath(script_members[0].name).parent
         lib_prefix = base / "lib"
@@ -155,7 +160,7 @@ def install_macos(data: bytes, destination: Path) -> None:
             copied += 1
 
         if copied == 0:
-            raise SystemExit("Could not find lib/ in the macOS archive.")
+            raise SystemExit("Could not find lib/ in the Perl archive.")
 
 
 def main(argv: list[str]) -> int:
@@ -181,7 +186,7 @@ def main(argv: list[str]) -> int:
     if platform_name == "windows":
         install_windows(data, destination)
     else:
-        install_macos(data, destination)
+        install_perl_distribution(data, destination)
 
     print(f"Installed ExifTool {EXIFTOOL_VERSION} into {destination}")
     return 0

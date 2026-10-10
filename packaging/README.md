@@ -24,6 +24,7 @@ Build from the repository root:
 
 ```bash
 .venv/bin/python -m pip install PyInstaller
+.venv/bin/python packaging/fetch_exiftool.py linux
 .venv/bin/python -m PyInstaller photo_gps_editor.spec --noconfirm
 tar -C dist -czf dist/photo-gps-editor-linux-x86_64.tar.gz 'Photo GPS Editor'
 ```
@@ -40,12 +41,14 @@ dist/photo-gps-editor-linux-x86_64.tar.gz
 The PyInstaller spec bundles:
 
 - `assets/`
-- `/usr/bin/exiftool`
-- ExifTool's Linux Perl support modules from `/usr/share/perl5/Image`
-- ExifTool's `File::RandomAccess` module from `/usr/share/perl5/File`
+- `tools/linux/exiftool` and `tools/linux/lib/`: the same pinned ExifTool
+  version as Windows and macOS (ExifTool's Perl distribution, the same archive
+  macOS uses), downloaded and checksum-verified by `fetch_exiftool.py linux`
 
 This gives the app its own ExifTool copy while still relying on the system Perl
-runtime, which is present by default on many Linux desktop installs.
+runtime, which is present by default on many Linux desktop installs. In source
+mode the app also prefers `tools/linux/exiftool` when it exists, and falls back
+to the `exiftool` on PATH.
 
 ## Windows
 

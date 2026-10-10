@@ -29,6 +29,10 @@ class MapPickerMixin:
     _map_window: MapWindow | None = None
     # The pin last given to the map, to notice when New Location changes.
     _map_pin_shown: tuple[float, float] | None = None
+    # For the map's Back button: New Location (latitude text, longitude text,
+    # source photo) before each change made on the map, newest last.
+    # Emptied each time the map opens.
+    _map_location_history: list[tuple[str, str, Path | None]] = []
 
     def show_map(self) -> None:
         """
@@ -50,6 +54,8 @@ class MapPickerMixin:
             # The pin counts as already shown: opening centers on the
             # photos, not on New Location.
             self._map_pin_shown = self._new_location_pin()
+            self._map_location_history = []
+            self._map_window.set_back_enabled(False)
             self._refresh_map()
             # Fitted once shown, so the map has its real size.
             self._map_window.show_photos_or_united_states()
@@ -74,8 +80,9 @@ class MapPickerMixin:
     def _build_map_window(self) -> MapWindow:
         window = MapWindow(self, fetcher=self._create_tile_fetcher(), icon_for=self._map_photo_icon)
         window.location_picked.connect(self._use_map_location)
-        window.use_photo_location.connect(lambda path: self.use_location_from_path(Path(path)))
-        window.clear_requested.connect(self.clear_location_fields)
+        window.use_photo_location.connect(self._use_map_photo_location)
+        window.clear_requested.connect(self._clear_map_location)
+        window.back_requested.connect(self._map_go_back)
         window.set_esri_key(self.settings.value(ESRI_KEY_SETTING, "", type=str))
         return window
 
@@ -101,8 +108,41 @@ class MapPickerMixin:
         A click or a dropped pin on the map: fill New Location, the same
         as typing coordinates (any location source photo is dropped).
         """
+        self._remember_location_for_back()
         self._map_pin_shown = (round(latitude, 6), round(longitude, 6))
         self.set_location_fields(f"{latitude:.6f}", f"{longitude:.6f}")
+
+    def _use_map_photo_location(self, path_text: str) -> None:
+        """
+        Use This Location in a photo's preview on the map.
+        """
+        self._remember_location_for_back()
+        self.use_location_from_path(Path(path_text))
+
+    def _clear_map_location(self) -> None:
+        """
+        The map's Clear: empty New Location (Back can bring it back).
+        """
+        if self.latitude_input.text() or self.longitude_input.text():
+            self._remember_location_for_back()
+        self.clear_location_fields()
+
+    def _remember_location_for_back(self) -> None:
+        self._map_location_history.append(
+            (self.latitude_input.text(), self.longitude_input.text(), self._location_source)
+        )
+        self._map_window.set_back_enabled(True)
+
+    def _map_go_back(self) -> None:
+        """
+        The map's Back: put New Location back to what it was before the last
+        change made on the map (and its source photo, if it had one).
+        """
+        if not self._map_location_history:
+            return
+        latitude, longitude, source = self._map_location_history.pop()
+        self.set_location_fields(latitude, longitude, source=source)
+        self._map_window.set_back_enabled(bool(self._map_location_history))
 
     def _map_photo_icon(self, path: Path) -> QIcon:
         item = self._grid_items_by_path.get(str(path))

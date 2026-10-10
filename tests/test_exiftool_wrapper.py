@@ -264,17 +264,69 @@ class ExifToolWrapperTests(unittest.TestCase):
 
         self.assertEqual(wrapper.read_embedded_preview(photo), EmbeddedPreview(b"jpeg", 1))
 
-    def test_keep_backups_leaves_out_overwrite_original(self) -> None:
+    def test_exiftool_always_changes_files_in_place(self) -> None:
         wrapper, execute_mock = self._wrapper_with_reply()
 
-        wrapper.write_gps(Path("/tmp/photo.jpg"), 1.0, 2.0)
+        wrapper.write_gps(Path("/tmp/no-such-photo.jpg"), 1.0, 2.0)
+        self.assertIn("-overwrite_original", execute_mock.call_args.args[0])
+        wrapper.clear_gps(Path("/tmp/no-such-photo.jpg"))
         self.assertIn("-overwrite_original", execute_mock.call_args.args[0])
 
+    def test_backup_is_name_original_with_the_same_extension(self) -> None:
+        wrapper, _execute_mock = self._wrapper_with_reply()
         wrapper.keep_backups = True
-        wrapper.write_gps(Path("/tmp/photo.jpg"), 1.0, 2.0)
-        self.assertNotIn("-overwrite_original", execute_mock.call_args.args[0])
-        wrapper.clear_gps(Path("/tmp/photo.jpg"))
-        self.assertNotIn("-overwrite_original", execute_mock.call_args.args[0])
+        wrapper.read_gps = MagicMock(return_value={"latitude": 1.0, "longitude": 2.0})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            photo = Path(temp_dir) / "IMG_0995.JPG"
+            photo.write_bytes(b"original bytes")
+
+            wrapper.write_gps(photo, 1.0, 2.0)
+            backup = Path(temp_dir) / "IMG_0995_original.JPG"
+            self.assertEqual(backup.read_bytes(), b"original bytes")
+            # Reported once, for the app to add it to the Photo List.
+            self.assertEqual(wrapper.take_created_backups(), [backup])
+            self.assertEqual(wrapper.take_created_backups(), [])
+
+            # Later changes keep the first backup (the true original).
+            photo.write_bytes(b"changed bytes")
+            wrapper.clear_gps(photo)
+            self.assertEqual(backup.read_bytes(), b"original bytes")
+
+    def test_no_backup_when_off_or_for_a_backup(self) -> None:
+        wrapper, _execute_mock = self._wrapper_with_reply()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            photo = Path(temp_dir) / "a.jpg"
+            photo.write_bytes(b"x")
+            wrapper.write_gps(photo, 1.0, 2.0)
+            self.assertFalse((Path(temp_dir) / "a_original.jpg").exists())
+
+            wrapper.keep_backups = True
+            wrapper.read_gps = MagicMock(return_value={"latitude": 1.0, "longitude": 2.0})
+            backup = Path(temp_dir) / "b_original.jpg"
+            backup.write_bytes(b"y")
+            wrapper.write_gps(backup, 1.0, 2.0)
+            self.assertFalse((Path(temp_dir) / "b_original_original.jpg").exists())
+
+    def test_no_backup_for_a_photo_without_gps(self) -> None:
+        wrapper, _execute_mock = self._wrapper_with_reply()
+        wrapper.keep_backups = True
+        wrapper.read_gps = MagicMock(return_value={"latitude": None, "longitude": None})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            photo = Path(temp_dir) / "new.jpg"
+            photo.write_bytes(b"x")
+
+            wrapper.write_gps(photo, 1.0, 2.0)
+
+            self.assertFalse((Path(temp_dir) / "new_original.jpg").exists())
+
+    def test_a_failed_backup_leaves_the_photo_unchanged(self) -> None:
+        wrapper, execute_mock = self._wrapper_with_reply()
+        wrapper.keep_backups = True
+        wrapper.read_gps = MagicMock(return_value={"latitude": 1.0, "longitude": 2.0})
+
+        with self.assertRaises(OSError):
+            wrapper.write_gps(Path("/tmp/no-such-folder/photo.jpg"), 1.0, 2.0)
+        execute_mock.assert_not_called()
 
     def test_process_is_guarded_stay_open_utf8_and_hidden_console_window(self) -> None:
         wrapper = ExifToolWrapper("exiftool")
@@ -345,24 +397,36 @@ class ExifToolWrapperIntegrationTests(unittest.TestCase):
 
     def test_backup_keeps_untouched_original_across_edits(self) -> None:
         photo = self._make_photo("backup.jpg")
-        backup = photo.with_name("backup.jpg_original")
+        backup = photo.with_name("backup_original.jpg")
+        # A photo that already has GPS (photos without GPS aren't backed up).
+        self.wrapper.write_gps(photo, 1.0, 2.0)
         self.wrapper.keep_backups = True
 
-        self.wrapper.write_gps(photo, 1.0, 2.0)
         self.wrapper.write_gps(photo, 3.0, 4.0)
+        self.wrapper.write_gps(photo, 5.0, 6.0)
         self.wrapper.clear_gps(photo)
 
         self.assertTrue(backup.exists())
-        self.assertEqual(
-            self.wrapper.read_gps(backup),
-            {"latitude": None, "longitude": None},
-        )
+        # Not ExifTool's own "backup.jpg_original" any more.
+        self.assertFalse(photo.with_name("backup.jpg_original").exists())
+        original = self.wrapper.read_gps(backup)
+        self.assertAlmostEqual(original["latitude"], 1.0, places=4)
+        self.assertAlmostEqual(original["longitude"], 2.0, places=4)
+
+    def test_no_backup_for_a_real_photo_without_gps(self) -> None:
+        photo = self._make_photo("plain.jpg")
+        self.wrapper.keep_backups = True
+
+        self.wrapper.write_gps(photo, 1.0, 2.0)
+
+        self.assertFalse(photo.with_name("plain_original.jpg").exists())
 
     def test_no_backup_file_by_default(self) -> None:
         photo = self._make_photo("no-backup.jpg")
 
         self.wrapper.write_gps(photo, 1.0, 2.0)
 
+        self.assertFalse(photo.with_name("no-backup_original.jpg").exists())
         self.assertFalse(photo.with_name("no-backup.jpg_original").exists())
 
     def test_reads_embedded_thumbnail_and_orientation(self) -> None:

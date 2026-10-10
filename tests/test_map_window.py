@@ -259,6 +259,87 @@ class MapWindowTests(unittest.TestCase):
         # Still open, ready for a new click.
         self.assertTrue(map_window.isVisible())
 
+    def _click_map(self, map_window, point: QPoint) -> tuple[str, str]:
+        QTest.mouseClick(map_window.map_view, Qt.LeftButton, Qt.NoModifier, point)
+        return self._fields()
+
+    def test_back_steps_through_the_locations_set_on_the_map(self) -> None:
+        map_window = self._open_map()
+        self.assertFalse(map_window.back_button.isEnabled())
+        first = self._click_map(map_window, QPoint(300, 200))
+        self._click_map(map_window, QPoint(500, 300))
+
+        QTest.mouseClick(map_window.back_button, Qt.LeftButton)
+        self.assertEqual(self._fields(), first)
+        self.assertTrue(map_window.back_button.isEnabled())
+
+        QTest.mouseClick(map_window.back_button, Qt.LeftButton)
+        self.assertEqual(self._fields(), ("", ""))
+        self.assertIsNone(map_window.map_view.pin)
+        self.assertFalse(map_window.back_button.isEnabled())
+
+    def test_back_undoes_clear(self) -> None:
+        map_window = self._open_map()
+        placed = self._click_map(map_window, QPoint(300, 200))
+        QTest.mouseClick(map_window.clear_button, Qt.LeftButton)
+
+        QTest.mouseClick(map_window.back_button, Qt.LeftButton)
+
+        self.assertEqual(self._fields(), placed)
+        self.assertIsNotNone(map_window.map_view.pin)
+
+    def test_back_brings_back_a_source_photo(self) -> None:
+        map_window = self._open_map()
+        dot = map_window.map_view.screen_point_for(*self.gps_by_path[self.with_gps]).toPoint()
+        QTest.mouseClick(map_window.map_view, Qt.LeftButton, Qt.NoModifier, dot)
+        QTest.mouseClick(map_window.preview.use_button, Qt.LeftButton)
+        self.assertEqual(self.window._location_source, self.with_gps)
+        self._click_map(map_window, QPoint(500, 300))
+        self.assertIsNone(self.window._location_source)
+
+        QTest.mouseClick(map_window.back_button, Qt.LeftButton)
+
+        self.assertEqual(self.window._location_source, self.with_gps)
+        self.assertEqual(self._fields(), ("40.586500", "-111.655800"))
+
+    def test_ctrl_z_in_the_map_is_back(self) -> None:
+        map_window = self._open_map()
+        first = self._click_map(map_window, QPoint(300, 200))
+        self._click_map(map_window, QPoint(500, 300))
+
+        QTest.keyClick(map_window, Qt.Key_Z, Qt.ControlModifier)
+
+        self.assertEqual(self._fields(), first)
+
+    def test_back_starts_empty_each_time_the_map_opens(self) -> None:
+        map_window = self._open_map()
+        self._click_map(map_window, QPoint(300, 200))
+        QTest.mouseClick(map_window.done_button, Qt.LeftButton)
+
+        map_window = self._open_map()
+
+        self.assertFalse(map_window.back_button.isEnabled())
+
+    def test_clicking_the_preview_thumbnail_zooms_to_the_photo(self) -> None:
+        map_window = self._open_map()
+        location = self.gps_by_path[self.with_gps]
+        dot = map_window.map_view.screen_point_for(*location).toPoint()
+        QTest.mouseClick(map_window.map_view, Qt.LeftButton, Qt.NoModifier, dot)
+
+        QTest.mouseClick(map_window.preview.thumbnail_button, Qt.LeftButton)
+
+        view = map_window.map_view
+        self.assertGreaterEqual(view.zoom, 15)
+        center = view.screen_point_for(*location)
+        self.assertAlmostEqual(center.x(), view.width() / 2, delta=1)
+        self.assertAlmostEqual(center.y(), view.height() / 2, delta=1)
+        # The preview stays open, beside the photo's dot.
+        self.assertTrue(map_window.preview.isVisible())
+        expected = view.mapToGlobal(center.toPoint()) + QPoint(12, 12)
+        self.assertEqual(map_window.preview.pos(), expected)
+        # Zooming doesn't change New Location.
+        self.assertEqual(self._fields(), ("", ""))
+
     def test_map_blocks_the_main_window_until_done(self) -> None:
         map_window = self._open_map()
 

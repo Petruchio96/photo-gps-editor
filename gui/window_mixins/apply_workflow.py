@@ -15,6 +15,16 @@ def _photos(count: int) -> str:
     return f"{count} photo" if count == 1 else f"{count} photos"
 
 
+def _backup_note(count: int) -> str:
+    """
+    Added to the message after a change that made backups.
+    """
+    if not count:
+        return ""
+    copies = "a backup of the original" if count == 1 else f"{count} backups of the originals"
+    return f" Saved {copies} and added {'it' if count == 1 else 'them'} to the list."
+
+
 class ApplyWorkflowMixin:
     def apply_coordinates_to_selected(self) -> None:
         """
@@ -81,6 +91,7 @@ class ApplyWorkflowMixin:
             preparation=preparation,
         )
         self.session = apply_result.session
+        backups = self._take_new_backups()
 
         result = apply_result.execution_result
         if result.successful_paths:
@@ -93,11 +104,16 @@ class ApplyWorkflowMixin:
                     path: (coordinates.latitude, coordinates.longitude)
                     for path in result.successful_paths
                 },
+                backups=backups,
             )
         else:
             self._clear_gps_edit_history()
 
-        self._rerender_keeping_selection(selected_paths)
+        self._rerender_selecting(
+            self._failed_targets(selected_paths, preparation.target_paths, result.successful_paths)
+        )
+        self._add_backups_to_list(backups)
+        backup_count = len(backups)
         if result.successful_paths:
             message = f"Applied GPS to {_photos(len(result.successful_paths))}."
             if skipped_count:
@@ -105,6 +121,7 @@ class ApplyWorkflowMixin:
                     f" Skipped {skipped_count} that already "
                     f"{'has' if skipped_count == 1 else 'had'} GPS."
                 )
+            message += _backup_note(backup_count)
             self._set_status_message(message, "success", undo=True)
         self._report_write_failures("apply GPS to", list(result.failed_paths))
 
@@ -217,29 +234,53 @@ class ApplyWorkflowMixin:
             target_paths=paths_with_gps,
         )
         self.session = clear_result.session
+        backups = self._take_new_backups()
         result = clear_result.execution_result
 
         if result.successful_paths:
             self._remember_gps_edit(
                 before_states=before_states,
                 after_states={path: (None, None) for path in result.successful_paths},
+                backups=backups,
             )
         else:
             self._clear_gps_edit_history()
 
-        self._rerender_keeping_selection(selected_paths)
+        self._rerender_selecting(
+            self._failed_targets(selected_paths, paths_with_gps, result.successful_paths)
+        )
+        self._add_backups_to_list(backups)
+        backup_count = len(backups)
         if result.successful_paths:
             self._set_status_message(
-                f"Removed GPS from {_photos(len(result.successful_paths))}.",
+                f"Removed GPS from {_photos(len(result.successful_paths))}."
+                + _backup_note(backup_count),
                 "success",
                 undo=True,
             )
         self._report_write_failures("remove GPS from", list(result.failed_paths))
 
-    def _rerender_keeping_selection(self, paths: list[Path]) -> None:
+    @staticmethod
+    def _failed_targets(
+        selected_paths: list[Path],
+        target_paths: list[Path],
+        successful_paths: list[Path],
+    ) -> list[Path]:
+        """
+        The photos to keep selected after Apply or Remove GPS: only those
+        that should have changed and didn't (to retry). The rest are
+        deselected: changed photos may move to a group the view hides, and
+        would otherwise be changed again by the next Apply. Undo brings the
+        old selection back.
+        """
+        targets = set(target_paths)
+        changed = set(successful_paths)
+        return [path for path in selected_paths if path in targets and path not in changed]
+
+    def _rerender_selecting(self, paths: list[Path]) -> None:
         """
         Redraw the grid after a change (photos may move between groups) and
-        keep the same photos selected where they are still shown.
+        select these photos.
         """
         self._render_current_photo_session()
         self.reselect_paths(paths)

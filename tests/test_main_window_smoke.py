@@ -1371,8 +1371,118 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertIn("Applied GPS to 2 photos.", hint)
         self.assertIn('href="undo"', hint)
         self.assertEqual(self.window.browser_hint.property("tone"), "success")
-        # The same photos stay selected after the grid is redrawn.
-        self.assertEqual(self.window.get_selected_paths(), self.paths)
+        # The changed photos are deselected, so the next Apply can't
+        # include them again by accident.
+        self.assertEqual(self.window.get_selected_paths(), [])
+
+    def test_backups_made_by_apply_join_the_list_unselected(self) -> None:
+        backup = Path("/tmp/photo-one_original.jpg")
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.gps_by_path[backup] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.select_browser_paths([self.paths[0]])
+        self._set_location(*self.location)
+        self.window.exiftool.take_created_backups = lambda: [backup]
+        dialog_patch, _ = self._answer_overwrite_dialog("Replace")
+
+        with dialog_patch:
+            self.window.apply_coordinates_to_selected()
+
+        self.assertIn(backup, self.window.session.selected_paths)
+        self.assertNotIn(backup, self.window.get_selected_paths())
+        self.assertIn("Saved a backup of the original", self.window.browser_hint.text())
+
+    def test_undo_deletes_the_backups_the_change_made_and_redo_makes_them_again(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        backup = Path(temp_dir.name) / "photo-one_original.jpg"
+        self.gps_by_path[self.paths[0]] = (41.0, -112.0)
+        self.gps_by_path[backup] = (41.0, -112.0)
+        self.window.populate_list()
+        self.window.select_browser_paths([self.paths[0]])
+        self._set_location(*self.location)
+
+        def make_backup():
+            backup.write_bytes(b"original")
+            return [backup]
+
+        self.window.exiftool.take_created_backups = make_backup
+        dialog_patch, _ = self._answer_overwrite_dialog("Replace")
+        with dialog_patch:
+            self.window.apply_coordinates_to_selected()
+        self.assertTrue(backup.exists())
+        self.assertIn(backup, self.window.session.selected_paths)
+
+        with patch.object(Path, "exists", return_value=True):
+            self.window.undo_gps_edit()
+
+        self.assertFalse(backup.is_file())
+        self.assertNotIn(backup, self.window.session.selected_paths)
+
+        # Redo makes the backup again; the next undo deletes it again.
+        with patch.object(Path, "exists", return_value=True):
+            self.window.redo_gps_edit()
+        self.assertTrue(backup.is_file())
+        self.assertIn(backup, self.window.session.selected_paths)
+        self.window.exiftool.take_created_backups = lambda: []
+        with patch.object(Path, "exists", return_value=True):
+            self.window.undo_gps_edit()
+        self.assertFalse(backup.is_file())
+
+    def test_undo_leaves_older_backups_alone(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        older = Path(temp_dir.name) / "photo-one_original.jpg"
+        older.write_bytes(b"from an earlier session")
+        self.window.select_all_photos()
+        self._set_location(*self.location)
+        self.window.apply_coordinates_to_selected()
+
+        with patch.object(Path, "exists", return_value=True):
+            self.window.undo_gps_edit()
+
+        self.assertEqual(older.read_bytes(), b"from an earlier session")
+
+    def test_apply_keeps_only_failed_photos_selected(self) -> None:
+        self.window.select_all_photos()
+        self._set_location(*self.location)
+        self.window.exiftool.failures[self.paths[1]] = RuntimeError("locked")
+
+        with patch.object(self.window, "_report_write_failures"):
+            self.window.apply_coordinates_to_selected()
+
+        self.assertEqual(self.window.get_selected_paths(), [self.paths[1]])
+
+    def test_undo_brings_back_the_selection_from_before_apply(self) -> None:
+        self.window.select_all_photos()
+        self._set_location(*self.location)
+        self.window.apply_coordinates_to_selected()
+        self.assertEqual(self.window.get_selected_paths(), [])
+
+        # Undo leaves out files that no longer exist; these test files are
+        # made up, so pretend they exist (as the other undo tests do).
+        with patch.object(Path, "exists", return_value=True):
+            self.window.undo_gps_edit()
+
+        self.assertCountEqual(self.window.get_selected_paths(), self.paths)
+
+    def test_skipped_photos_are_deselected_too(self) -> None:
+        self._select_one_with_gps_and_one_without()
+        dialog_patch, _ = self._answer_overwrite_dialog("Skip Photos with GPS")
+
+        with dialog_patch:
+            self.window.apply_coordinates_to_selected()
+
+        self.assertEqual(self.window.get_selected_paths(), [])
+
+    def test_cancelled_apply_keeps_the_selection(self) -> None:
+        self._select_one_with_gps_and_one_without()
+        dialog_patch, _ = self._answer_overwrite_dialog("Cancel")
+
+        with dialog_patch:
+            self.window.apply_coordinates_to_selected()
+
+        self.assertCountEqual(self.window.get_selected_paths(), self.paths)
 
     def test_apply_only_touches_selected_photos(self) -> None:
         self._select_paths([self.paths[1]])
@@ -1663,6 +1773,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.loader.calls, self.paths)
         self.assertIn("Removed GPS from 1 photo.", self.window.browser_hint.text())
         self.assertTrue(self.window.undo_action.isEnabled())
+        self.assertEqual(self.window.get_selected_paths(), [])
 
         self.window.undo_action.trigger()
         self.assertEqual(self.gps_by_path[self.paths[0]], (41.0, -112.0))

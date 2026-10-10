@@ -714,6 +714,16 @@ QFrame#mapProblem {
 QLabel#mapProblemText {
     color: #7a4a00;
 }
+QPushButton#previewThumb {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0px;
+}
+QPushButton#previewThumb:hover {
+    background: #e8f1ff;
+    border-color: #8cb7f0;
+}
 QPushButton#previewStep {
     background: transparent;
     border: none;

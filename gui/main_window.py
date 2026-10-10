@@ -147,12 +147,12 @@ class MainWindow(
         self.setCentralWidget(central_widget)
 
         outer_layout = QVBoxLayout(central_widget)
-        outer_layout.setContentsMargins(20, 18, 20, 20)
+        outer_layout.setContentsMargins(10, 10, 10, 10)
         outer_layout.setSpacing(12)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(14)
+        splitter.setHandleWidth(8)
         splitter.addWidget(build_browser_panel(self))
         splitter.addWidget(build_editor_panel(self))
         splitter.setStretchFactor(0, 5)
@@ -385,10 +385,12 @@ class MainWindow(
         *,
         before_states: dict[Path, tuple[float | None, float | None]],
         after_states: dict[Path, tuple[float | None, float | None]],
+        backups: list[Path] | None = None,
     ) -> None:
         self.gps_history.record(
             before=before_states,
             after=after_states,
+            backups=tuple(backups or ()),
             photo_list=PhotoListSnapshot(
                 paths=tuple(self.session.selected_paths),
                 selected=tuple(self.get_selected_paths()),
@@ -412,7 +414,8 @@ class MainWindow(
         if not states:
             return
 
-        failed_paths = self._restore_gps_states(states)
+        failed_paths, _backups = self._restore_gps_states(states)
+        failed_paths += self._delete_backups(self.gps_history.backups)
         self.gps_history.mark_undone()
         self._update_undo_redo_actions()
         self._report_write_failures("undo the GPS change for", failed_paths)
@@ -423,7 +426,9 @@ class MainWindow(
         if not states:
             return
 
-        failed_paths = self._restore_gps_states(states)
+        failed_paths, backups = self._restore_gps_states(states)
+        # Redo made the backups again: the next undo deletes these.
+        self.gps_history.set_backups(tuple(backups))
         self.gps_history.mark_redone()
         self._update_undo_redo_actions()
         self._report_write_failures("redo the GPS change for", failed_paths)
@@ -432,10 +437,11 @@ class MainWindow(
     def _restore_gps_states(
         self,
         states: dict[Path, tuple[float | None, float | None]],
-    ) -> list[str]:
+    ) -> tuple[list[str], list[Path]]:
         """
         Write remembered GPS states back to files, and put the photo list
-        back the way it was when the edit was made. Returns failure messages.
+        back the way it was when the edit was made. Returns failure messages,
+        and the backups the writes made (added to the list).
         """
         # A load still running would replace the list put back here.
         self.cancel_loading()
@@ -459,7 +465,48 @@ class MainWindow(
         else:
             self.list_widget.clearSelection()
             self.update_details_panel()
-        return list(result.execution_result.failed_paths)
+        backups = self._take_new_backups()
+        self._add_backups_to_list(backups)
+        return list(result.execution_result.failed_paths), backups
+
+    def _take_new_backups(self) -> list[Path]:
+        """
+        The backups ("<name>_original.<ext>") the last change just made.
+        """
+        take = getattr(self.workflow.writer, "take_created_backups", None)
+        return take() if take is not None else []
+
+    def _add_backups_to_list(self, backups: list[Path]) -> None:
+        """
+        Add new backups to the Photo List, not selected.
+        """
+        in_list = set(self.session.selected_paths)
+        new_backups = [path for path in backups if path not in in_list]
+        if new_backups:
+            # Loads in the background like Add Photos; the selection stays.
+            self.load_photos(self.session.selected_paths + new_backups)
+
+    def _delete_backups(self, backups: tuple[Path, ...]) -> list[str]:
+        """
+        Undo: delete the backups the undone change made (the photos have
+        their earlier GPS back, so the copies aren't needed), and take them
+        out of the Photo List. Returns failure messages.
+        """
+        failed = []
+        for backup in backups:
+            try:
+                backup.unlink(missing_ok=True)
+            except OSError as exc:
+                failed.append(f"{backup.name}: could not delete the backup ({exc})")
+        gone = set(backups)
+        if any(path in gone for path in self.session.selected_paths):
+            selected = self.get_selected_paths()
+            self.session.selected_paths = [
+                path for path in self.session.selected_paths if path not in gone
+            ]
+            self._render_current_photo_session()
+            self.select_browser_paths([path for path in selected if path not in gone])
+        return failed
 
     def _report_write_failures(self, action: str, failed_paths: list[str]) -> None:
         """

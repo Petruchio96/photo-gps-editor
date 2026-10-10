@@ -107,5 +107,25 @@ class GpsEditHistoryTests(unittest.TestCase):
         self.assertIsNone(history.photo_list)
 
 
+class GpsEditHistoryBackupTests(unittest.TestCase):
+    def test_remembers_the_backups_an_edit_made(self) -> None:
+        history = GpsEditHistory()
+        backup = Path("/tmp/a_original.jpg")
+        history.record(before={Path("/tmp/a.jpg"): (1.0, 2.0)}, after={Path("/tmp/a.jpg"): (3.0, 4.0)}, backups=(backup,))
+
+        self.assertEqual(history.backups, (backup,))
+        history.set_backups(())
+        self.assertEqual(history.backups, ())
+        history.set_backups((backup,))
+        history.clear()
+        self.assertEqual(history.backups, ())
+
+    def test_no_backups_kept_for_an_edit_that_changed_nothing(self) -> None:
+        history = GpsEditHistory()
+        history.record(before={}, after={}, backups=(Path("/tmp/a_original.jpg"),))
+
+        self.assertEqual(history.backups, ())
+
+
 if __name__ == "__main__":
     unittest.main()

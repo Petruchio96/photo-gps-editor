@@ -18,8 +18,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -37,6 +37,7 @@ from core.map_tiles import (
     TileSource,
 )
 from gui.widgets.map_view import MapView, PhotoPin, TileFetcher
+from gui.window_frame import apply_window_border
 
 MAP_HINT = (
     "Click the map to set the New Location, or drag the orange pin. "
@@ -65,10 +66,12 @@ class PhotoPreviewPopup(QFrame):
     """
     A small preview of the photo(s) under a clicked dot: thumbnail, file
     name, and Use This Location. Photos taken at one spot overlap, so it
-    steps through them with ‹ and ›. Closes when clicking elsewhere.
+    steps through them with < and >. Clicking the thumbnail zooms the map to
+    the photo. Closes when clicking elsewhere.
     """
 
     use_location = Signal(str)
+    zoom_to = Signal(str)
 
     def __init__(self, parent: QWidget, icon_for: Callable[[Path], QIcon]) -> None:
         super().__init__(parent, Qt.Popup)
@@ -81,9 +84,14 @@ class PhotoPreviewPopup(QFrame):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        self.thumbnail_label = QLabel()
-        self.thumbnail_label.setFixedSize(PREVIEW_SIZE, PREVIEW_SIZE)
-        self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        # A flat button: clicking the thumbnail zooms to the photo.
+        self.thumbnail_button = QPushButton()
+        self.thumbnail_button.setObjectName("previewThumb")
+        self.thumbnail_button.setFixedSize(PREVIEW_SIZE + 8, PREVIEW_SIZE + 8)
+        self.thumbnail_button.setIconSize(QSize(PREVIEW_SIZE, PREVIEW_SIZE))
+        self.thumbnail_button.setCursor(Qt.PointingHandCursor)
+        self.thumbnail_button.setToolTip("Zoom the map to this photo's location")
+        self.thumbnail_button.clicked.connect(self._zoom_to_current)
         self.name_label = QLabel()
         self.name_label.setObjectName("mapPreviewName")
         self.name_label.setAlignment(Qt.AlignCenter)
@@ -117,7 +125,7 @@ class PhotoPreviewPopup(QFrame):
         self.use_button.setToolTip("Copy this photo's location into New Location")
         self.use_button.clicked.connect(self._use_location)
 
-        layout.addWidget(self.thumbnail_label, 0, Qt.AlignHCenter)
+        layout.addWidget(self.thumbnail_button, 0, Qt.AlignHCenter)
         layout.addWidget(self.name_label)
         layout.addWidget(self.stepper)
         layout.addWidget(self.use_button)
@@ -141,7 +149,7 @@ class PhotoPreviewPopup(QFrame):
 
     def _show_current(self) -> None:
         path = Path(self._paths[self._index])
-        self.thumbnail_label.setPixmap(self._icon_for(path).pixmap(PREVIEW_SIZE, PREVIEW_SIZE))
+        self.thumbnail_button.setIcon(self._icon_for(path))
         self.name_label.setText(path.name)
         several = len(self._paths) > 1
         self.stepper.setVisible(several)
@@ -152,6 +160,11 @@ class PhotoPreviewPopup(QFrame):
         self.hide()
         if path is not None:
             self.use_location.emit(path)
+
+    def _zoom_to_current(self) -> None:
+        path = self.current_path
+        if path is not None:
+            self.zoom_to.emit(path)
 
 
 class MapWindow(QWidget):
@@ -176,6 +189,8 @@ class MapWindow(QWidget):
     view_changed = Signal()
     # Clear: empty New Location (the pin goes away) to start over.
     clear_requested = Signal()
+    # Back (or Ctrl+Z): the New Location before the last change on the map.
+    back_requested = Signal()
 
     def __init__(
         self,
@@ -193,6 +208,7 @@ class MapWindow(QWidget):
         self.resize(960, 700)
         self.setMinimumSize(480, 360)
         self._photo_locations: list[tuple[float, float]] = []
+        self._photo_location_by_path: dict[str, tuple[float, float]] = {}
         # The user's ArcGIS key, and True after "Use US Satellite Instead"
         # (until the map is opened again).
         self._esri_key = ""
@@ -208,6 +224,7 @@ class MapWindow(QWidget):
 
         self.preview = PhotoPreviewPopup(self, icon_for)
         self.preview.use_location.connect(self.use_photo_location)
+        self.preview.zoom_to.connect(self._zoom_to_photo)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -232,8 +249,14 @@ class MapWindow(QWidget):
         self.clear_button.setProperty("tone", "neutral")
         self.clear_button.setMinimumWidth(110)
         self.clear_button.clicked.connect(self.clear_requested)
+        self.back_button = QPushButton("Back")
+        self.back_button.setProperty("tone", "neutral")
+        self.back_button.setMinimumWidth(110)
+        self.back_button.clicked.connect(self.back_requested)
+        self.set_back_enabled(False)
         bottom = QHBoxLayout()
         bottom.addWidget(self.readout_label, 1)
+        bottom.addWidget(self.back_button)
         bottom.addWidget(self.clear_button)
         bottom.addWidget(self.done_button)
         layout.addLayout(bottom)
@@ -290,8 +313,17 @@ class MapWindow(QWidget):
         self.map_view.set_pin(location, reveal=reveal)
         self._update_buttons()
 
+    def set_back_enabled(self, enabled: bool) -> None:
+        self.back_button.setEnabled(enabled)
+        self.back_button.setToolTip(
+            "Go back to the location before your last change (Ctrl+Z)"
+            if enabled
+            else "Nothing to go back to yet"
+        )
+
     def set_photo_pins(self, pins: list[PhotoPin]) -> None:
         self._photo_locations = [(pin.latitude, pin.longitude) for pin in pins]
+        self._photo_location_by_path = {pin.path: (pin.latitude, pin.longitude) for pin in pins}
         self.map_view.set_photo_pins(pins)
         if self.preview.isVisible() and self.preview.current_path not in {pin.path for pin in pins}:
             # The photo left the list or lost its GPS.
@@ -430,6 +462,11 @@ class MapWindow(QWidget):
             else "No location selected yet: click the map to place the pin"
         )
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # A clearer edge on Windows 11 (see gui/window_frame.py).
+        apply_window_border(self)
+
     def closeEvent(self, event) -> None:
         # The photo preview goes with the map.
         self.preview.hide()
@@ -440,7 +477,24 @@ class MapWindow(QWidget):
         if event.key() == Qt.Key_Escape:
             self.close()
             return
+        # Ctrl+Z (Cmd+Z on macOS): Back.
+        if event.matches(QKeySequence.StandardKey.Undo):
+            if self.back_button.isEnabled():
+                self.back_requested.emit()
+            return
         super().keyPressEvent(event)
+
+    def _zoom_to_photo(self, path: str) -> None:
+        """
+        Clicking the preview's thumbnail: zoom to the photo, like Go to
+        Selected Location does for the pin, and keep the preview beside it.
+        """
+        location = self._photo_location_by_path.get(path)
+        if location is None:
+            return
+        self.map_view.set_view(location[0], location[1], max(self.map_view.zoom, 15))
+        dot = self.map_view.screen_point_for(*location).toPoint()
+        self.preview.move(self.map_view.mapToGlobal(dot) + QPoint(12, 12))
 
     def _show_pointer_location(self, latitude: float, longitude: float) -> None:
         self.readout_label.setText(f"{latitude:.6f}, {longitude:.6f}")

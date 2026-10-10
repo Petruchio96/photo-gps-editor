@@ -56,15 +56,18 @@ class FetchExifToolTests(unittest.TestCase):
             )
             self.assertFalse((destination / "README.txt").exists())
 
-    def test_install_macos_copies_script_and_lib(self) -> None:
+    def test_install_perl_distribution_copies_script_and_lib(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             destination = Path(temp_dir)
-            fetch_exiftool.install_macos(_macos_archive(), destination)
+            fetch_exiftool.install_perl_distribution(_macos_archive(), destination)
 
             script = destination / "exiftool"
             self.assertEqual(script.read_bytes(), b"#!/usr/bin/perl\n")
             self.assertTrue((destination / "lib" / "Image" / "ExifTool.pm").exists())
             self.assertFalse((destination / "t").exists())
+
+    def test_linux_uses_the_same_archive_as_macos(self) -> None:
+        self.assertEqual(fetch_exiftool.DOWNLOADS["linux"], fetch_exiftool.DOWNLOADS["macos"])
 
     def test_unsafe_archive_paths_are_rejected(self) -> None:
         with self.assertRaises(SystemExit):

@@ -188,10 +188,13 @@ class LocationEditorMixin:
             self.latitude_input,
             self.longitude_input,
             self.location_from_photo_button,
+            self.show_map_button,
             self.source_card_clear,
             *self.grid_filter_buttons.values(),
         ):
             widget.setEnabled(True)
+        if self._map_window is not None:
+            self._map_window.setEnabled(True)
 
         # Back to the Show filter used before picking, ready to select the
         # photos to change.
@@ -289,12 +292,16 @@ class LocationEditorMixin:
             self.longitude_input,
             self.paste_coordinates_button,
             self.location_from_photo_button,
+            self.show_map_button,
             self.clear_location_button,
             self.source_card_clear,
             self.apply_button,
             self.remove_gps_button,
         ):
             widget.setEnabled(False)
+        # The map is another way to set New Location: off while picking.
+        if self._map_window is not None:
+            self._map_window.setEnabled(False)
 
         for action_name in (
             "select_all_action",

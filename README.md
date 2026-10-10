@@ -14,13 +14,16 @@ The app supports JPG thumbnails, selected RAW formats, grouped browsing of photo
 - Select the photos to change; the Photos to Change pane shows how many are
   selected and how many already have GPS.
 - Set a new location by typing or pasting coordinates (decimal, DMS, or DDM),
-  using a selected photo's location, or reading it from any photo file.
+  using a selected photo's location, reading it from any photo file, or
+  clicking a map (street map, US satellite imagery, or Esri's worldwide
+  satellite imagery with your own free ArcGIS key). The map also shows the
+  photos in the list that have GPS.
 - Apply the new location to the selected photos, with a warning before
   replacing existing GPS.
 - Remove GPS coordinates from selected photos.
 - Undo or redo the most recent GPS change while the app is open (undo also
   puts the photo list back the way it was).
-- Optionally keep a backup copy of each original file (Edit > Keep Backup Copies of Originals).
+- Optionally keep a backup copy of each original file (Edit > Settings > Keep Backup Copies of Originals).
 
 ## Local Development Instructions
 

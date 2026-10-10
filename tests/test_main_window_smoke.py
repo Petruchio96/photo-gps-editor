@@ -1678,18 +1678,78 @@ class MainWindowSmokeTests(unittest.TestCase):
     def test_no_heading_for_an_empty_group(self) -> None:
         self.assertEqual(self._group_headings(), ["Photos without GPS Coordinates (2)"])
 
-    def test_keep_backups_option_is_saved_and_applied(self) -> None:
-        self.assertFalse(self.window.keep_backups_action.isChecked())
+    def _open_settings(self):
+        self.window.open_settings()
+        dialog = self.window._settings_dialog
+        # An open modal dialog would block the mouse in later tests.
+        self.addCleanup(dialog.close)
+        return dialog
 
-        self.window.keep_backups_action.setChecked(True)
+    @staticmethod
+    def _click_checkbox(checkbox) -> None:
+        # On the box itself: the widget is wider than its box and label.
+        QTest.mouseClick(checkbox, Qt.LeftButton, Qt.NoModifier, QPoint(8, checkbox.height() // 2))
+
+    def test_keep_backups_option_is_saved_and_applied(self) -> None:
+        dialog = self._open_settings()
+        self.assertEqual(dialog.windowModality(), Qt.ApplicationModal)
+        self.assertFalse(dialog.keep_backups_check.isChecked())
+
+        self._click_checkbox(dialog.keep_backups_check)
+        QTest.mouseClick(dialog.save_button, Qt.LeftButton)
 
         self.assertTrue(self.window.workflow.writer.keep_backups)
         self.assertTrue(self.settings.value("keep_backup_copies", type=bool))
 
         reopened = MainWindow(settings=QSettings(str(self.settings_path), QSettings.IniFormat))
         self.addCleanup(reopened.close)
-        self.assertTrue(reopened.keep_backups_action.isChecked())
+        self.assertTrue(reopened.keep_backups)
         self.assertTrue(reopened.workflow.writer.keep_backups)
+
+    def test_save_is_off_until_a_setting_changes(self) -> None:
+        dialog = self._open_settings()
+        self.assertFalse(dialog.save_button.isEnabled())
+
+        self._click_checkbox(dialog.keep_backups_check)
+        self.assertTrue(dialog.save_button.isEnabled())
+
+        # Changed back: nothing to save again.
+        self._click_checkbox(dialog.keep_backups_check)
+        self.assertFalse(dialog.save_button.isEnabled())
+
+        dialog.esri_key_input.setText("some-key")
+        self.assertTrue(dialog.save_button.isEnabled())
+
+    def test_cancelled_settings_change_nothing(self) -> None:
+        dialog = self._open_settings()
+        self._click_checkbox(dialog.keep_backups_check)
+        dialog.esri_key_input.setText("some-key")
+
+        QTest.mouseClick(dialog.cancel_button, Qt.LeftButton)
+
+        self.assertFalse(getattr(self.window.workflow.writer, "keep_backups", False))
+        self.assertIsNone(self.settings.value("keep_backup_copies"))
+        self.assertIsNone(self.settings.value("map/esri_api_key"))
+
+    def test_settings_is_in_the_edit_menu(self) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        self.assertEqual(self.window.settings_action.text(), "Settings...")
+        edit_menu = next(
+            menu for menu in self.window.menuBar().findChildren(QMenu) if menu.title() == "&Edit"
+        )
+        self.assertIn(self.window.settings_action, edit_menu.actions())
+
+    def test_every_settings_button_has_a_hover_hint(self) -> None:
+        from PySide6.QtWidgets import QPushButton
+
+        dialog = self._open_settings()
+        missing = [
+            button.text()
+            for button in dialog.findChildren(QPushButton)
+            if not button.toolTip()
+        ]
+        self.assertEqual(missing, [])
 
 
 

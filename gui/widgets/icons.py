@@ -53,6 +53,26 @@ def pin_icon(color: str) -> QIcon:
     return _icon(color, draw)
 
 
+def map_icon(color: str) -> QIcon:
+    """Folded map, for Pick from a Map."""
+
+    def draw(painter: QPainter) -> None:
+        path = QPainterPath(QPointF(2, 4))
+        path.lineTo(QPointF(6, 2.5))
+        path.lineTo(QPointF(10, 4))
+        path.lineTo(QPointF(14, 2.5))
+        path.lineTo(QPointF(14, 12))
+        path.lineTo(QPointF(10, 13.5))
+        path.lineTo(QPointF(6, 12))
+        path.lineTo(QPointF(2, 13.5))
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.drawLine(QPointF(6, 2.5), QPointF(6, 12))
+        painter.drawLine(QPointF(10, 4), QPointF(10, 13.5))
+
+    return _icon(color, draw)
+
+
 def clock_icon(color: str) -> QIcon:
     """Clock face, for the Date & Time tab."""
 

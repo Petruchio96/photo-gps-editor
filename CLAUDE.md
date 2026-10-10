@@ -31,6 +31,12 @@ status, architecture, the current UI, and future ideas.
 - Prefer targeted edits over full-file rewrites; add helpful comments to new
   code, but leave existing comments alone unless they become wrong.
 - Every button needs a hover hint (a test enforces this).
+- Color theme, wherever it fits (not forced): blue (`#1f6feb`) = what already
+  exists (photos with GPS, Has GPS, the GPS badge, the location source, photo
+  dots on the map); orange (`#d97706`) = what is new or about to change (the
+  selection, Apply, Needs GPS, the map's New Location pin); navy = the Photo
+  List (its header and the All view). Grey means disabled, so never use it to
+  mark something as active.
 - Background results reach the GUI thread through a plain Python queue, not
   queued signals carrying Python objects (that crashed on Windows). Don't open
   dialogs with blocking `exec()`; use `open()` plus a callback.
@@ -42,5 +48,10 @@ status, architecture, the current UI, and future ideas.
   with GitHub's merge button (merge commit).
 - Never commit or push until the user says to; they review changes in VS Code first.
 - No AI attribution (Co-Authored-By) lines in commits or PRs.
+- New versions only for major UI improvements, significant new features, or
+  fixes for bugs that stopped a core feature from working. Branches of
+  incremental improvements don't get a version bump; their changes ship with the
+  next version. When a branch does qualify, suggest the bump and put it in the
+  same PR.
 - Version bumps touch `pyproject.toml`, `APP_VERSION` in `gui/main_window.py`,
-  and `README.md`.
+  and the `PROJECT_CONTEXT.md` snapshot (`README.md` has no version number).

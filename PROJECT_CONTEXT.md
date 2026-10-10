@@ -3,7 +3,7 @@
 ## Snapshot
 
 Last updated: 2026-10-09
-Version: 1.4.1 released (Linux, Windows, macOS). 1.4: the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system. 1.4.1: the blue pin GPS badge, the blue = existing / orange = new color theme, the map's Clear button, and no blocking dialogs
+Version: 1.4.1 released (Linux, Windows, macOS). 1.4: the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system. 1.4.1: the blue pin GPS badge, the blue = existing / orange = new color theme, the map's Clear button, and no blocking dialogs. Not released yet (for the next version): deselect after Apply, the map's Back button and zoom from a photo's preview, backups named `<name>_original.<ext>` (only for photos that had GPS), tighter window spacing, and a clearer window edge on Windows 11
 Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), a pop-out map for picking a location (OpenStreetMap, USGS, or Esri with the user's key), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
@@ -52,6 +52,7 @@ Key objectives:
 - `gui/system_thumbnails.py`: reads and writes the freedesktop.org thumbnail cache (`~/.cache/thumbnails`) shared with Nemo/Nautilus; PNG labels are read directly because Qt can't read `Thumb::MTime`
 - `gui/error_log.py`: `error-log.txt` in the app's data folder (Windows: `%LOCALAPPDATA%\Photo GPS Editor\Photo GPS Editor`); unexpected errors (with a pop-up), Qt warnings/fatals, hard-crash call stacks (faulthandler), and low-level stderr in windowed builds
 - `gui/gc_guard.py`: automatic garbage collection is off; a timer collects on the GUI thread between events
+- `gui/window_frame.py`: on Windows 11, a visible slate border (DWM border color) for the map, the picker, and Settings, which Windows otherwise draws too faint to tell apart from the main window; no-op elsewhere
 - `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), `photo_picker.py` (the Add Photos picker), `map_view.py` (the map widget: tiles drawn with QPainter, downloaded by QNetworkAccessManager on the GUI thread into a disk cache; pin and photo dots), `map_window.py` (the pop-out map window and photo preview), `settings_dialog.py` (Edit > Settings: backups and the ArcGIS key), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
 - `gui/presenters/`: UI-facing view-state builders; `inspector_state.py` holds the inspector logic with no Qt code
 - `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, the map (`map_picker.py`), and apply/remove workflows
@@ -67,7 +68,7 @@ Location pin), navy = Photo List (and the All view). The window title
 is the OS title bar (no in-app title bar). Every button has a hover hint (a
 test enforces this). No dialog or menu blocks with `exec()` (a test enforces
 this): message boxes use `MainWindow.show_message` (modal, `show()` plus a
-callback) and the right-click menu uses `popup()`.
+callback) and the right-click menu uses `popup()`; the blocking `QMessageBox.warning()`-style shortcuts aren't used either (also tested), including in the error log's pop-up.
 
 ### Left: Photo List
 
@@ -91,16 +92,17 @@ callback) and the right-click menu uses `popup()`.
 - `Pick from a Map` opens the map window (below)
 - The location source shows on a blue card and as a blue `SOURCE` outline in the grid; editing the fields by hand drops it
 - `Apply Location to N Photos` (orange); a note warns when existing GPS will be replaced; the confirmation offers `Skip Photos with GPS`, `Replace`, or `Cancel`
+- After Apply or Remove GPS, the photos are deselected except ones that failed (to retry); changed photos can move to a group the view hides and would otherwise be included in the next Apply. Undo brings the old selection back
 - `Remove GPS from Selected N Photos` (red outline, counts the selected photos that have GPS), with confirmation
 - `Date & Time` tab: placeholder until date/time editing is designed
 - Pop-ups for a browsed photo with no GPS and for an unreadable photo
 
 ### Map window
 
-- Opened with `Pick from a Map` in New Location; a separate window that blocks the main window while open (application-modal, shown with `show()` like the picker, not a blocking `exec()`); `Clear` (next to Done) empties New Location and removes the pin to start over; `Done` (orange) or Esc closes it, then Apply in the main window writes the location
+- Opened with `Pick from a Map` in New Location; a separate window that blocks the main window while open (application-modal, shown with `show()` like the picker, not a blocking `exec()`); `Back` steps back through the New Locations set on the map while it is open (clicks, drops, Clear, Use This Location; Ctrl+Z too; emptied when the map opens) and `Clear` empties New Location and removes the pin to start over, both next to Done; `Done` (orange) or Esc closes it, then Apply in the main window writes the location
 - The map is another source for New Location, not a separate workflow: a quick click on the map (released within 0.30 s, moving under 2 px; a longer hold or any wiggle pans instead, so a sloppy click-and-hold doesn't move the pin; the click that brings the map window back from another program only activates it: Linux window managers activate the window just before delivering the click, so a click within 0.3 s of the window getting focus, from Qt's app-wide focus-window signal, is ignored) moves the orange pin there and fills the latitude/longitude fields (as typing would, so a location source photo is dropped); dragging the pin fills them when it is dropped. Apply writes them as usual
 - The pin follows New Location (typed, pasted, copied from a photo); the map moves to it only when it changed and is out of view; empty fields remove the pin
-- Photos in the Photo List with GPS show as blue dots (the app's `#1f6feb`) with a white outline, orange when selected (green blended into the map, and purple was tried and dropped). Hovering a dot shows the file name(s); clicking one shows a small preview (thumbnail, name, `Use This Location`, and `< 1 of 2 >` arrows beside the count when several photos' dots land on the same spot, within 2 px, so they look like one dot; nearby but separate dots each open their own preview; `Use This Location` uses the photo shown) and does not move the pin
+- Photos in the Photo List with GPS show as blue dots (the app's `#1f6feb`) with a white outline, orange when selected (green blended into the map, and purple was tried and dropped). Hovering a dot shows the file name(s); clicking one shows a small preview (thumbnail, name, `Use This Location`; clicking the thumbnail zooms the map to that photo, at least zoom 15, and keeps the preview beside its dot; and `< 1 of 2 >` arrows beside the count when several photos' dots land on the same spot, within 2 px, so they look like one dot; nearby but separate dots each open their own preview; `Use This Location` uses the photo shown) and does not move the pin
 - While another program is active, the map shows the normal arrow and no photo-name hints (a click there only brings the window back); otherwise the pointer is a crosshair (drawn in code at the screen's scale, dark with a white halo; its hot spot is its center), a pointing hand over a photo dot, an open hand over the pin, and a closed hand as soon as the button is pressed (except on a dot); a readout under the map shows the coordinates under the mouse as it moves
 - Drag to pan, wheel or `+`/`-` to zoom (whole levels; opening may use an in-between level, drawn from the nearest level's tiles scaled); toolbar: `Street` and one satellite button (`Satellite` = Esri when a key is set in Edit > Settings, `US Satellite` = USGS when not), `Show All Photo Locations`, `Go to Selected Location`, zoom buttons. If Esri's imagery doesn't load (key refused, offline), an amber banner says to check the key in Edit > Settings and offers `Use US Satellite Instead` (the button then reads `US Satellite` until the map is opened again)
 - Street map: OpenStreetMap's tile server (identifying User-Agent, cache headers honored, no bulk downloads, credit shown). US Satellite: USGS The National Map orthoimagery (no key; no use constraints; United States only, detailed to zoom 16 and enlarged beyond; a note says so elsewhere). Esri Satellite: Esri World Imagery from the image tile service for API keys (`ibasemaps-api.arcgis.com`; worldwide, street-level detail to zoom 19 and beyond, 256-pixel tiles). The Static Basemap Tiles service has no imagery style (only imagery labels), and this service accepts the key only as `?token=` in the address, not in a header, so the key also appears in the tile cache's records. It needs the user's own API key from a free ArcGIS Location Platform account (an open-source app can't keep its own key secret; a Public application key with only the Static basemap tiles privilege works): the key is entered in Edit > Settings and saved in plain text in the app's settings. Without a key Esri answers 200 with a JSON "Token Required" error and the map shows a note; as of 2026-10-09 it serves imagery for any non-empty token, so a wrong key is not detected (usage shows in the ArcGIS dashboard a day later)
@@ -122,7 +124,7 @@ callback) and the right-click menu uses `popup()`.
 - `Select All Photos`
 - `Copy GPS Coordinates`
 - `Paste Coordinates`
-- `Settings...` (Ctrl+, / Cmd+,; Qt's standard Preferences key is the "Settings" media key on Linux; on macOS in the app menu): a modal window (shown with `show()`) with Backups (`Keep Backup Copies of Originals`, saved between sessions) and the Esri Satellite key (instructions and links, Paste, Remove Key); Save applies, Cancel changes nothing
+- `Settings...` (Ctrl+, / Cmd+,; Qt's standard Preferences key is the "Settings" media key on Linux; on macOS in the app menu): a modal window (shown with `show()`) with Backups (`Keep Backup Copies of Originals`, saved between sessions: before a photo's first GPS change the app copies it to `<name>_original.<ext>`, e.g. `IMG_0995_original.jpg`, next to it, if it had GPS (adding GPS to a photo without any loses nothing); an existing backup is kept and a backup is never backed up; new backups are added to the Photo List, not selected, and the action's message says so; undo deletes the backups the undone change made (only those) and redo makes them again; ExifTool's own `IMG_0995.jpg_original` naming isn't used, as no photo list shows it) and the Esri Satellite key (instructions and links, Paste, Remove Key); Save applies, Cancel changes nothing
 
 - Help:
 - `About` includes the GitHub repository link
@@ -136,6 +138,7 @@ callback) and the right-click menu uses `popup()`.
 - Stores prior GPS state for each successfully changed photo
 - Restores prior coordinates or blank/no-GPS state on undo
 - Also puts the photo list and selection back as they were at the edit (photos added since disappear, removed ones come back; files that no longer exist are left out)
+- Deletes the backup files (`<name>_original.<ext>`) the undone change created; redo creates them again (the edit remembers which backups it made)
 - Redo reapplies the undone GPS action
 - Undo/redo memory is replaced by the next apply/clear action; adding, removing, or clearing photos does not clear it
 - Memory is not written to disk and is cleared on program exit
@@ -157,6 +160,11 @@ callback) and the right-click menu uses `popup()`.
 
 ## Future Ideas
 
+- Next: hand-test the unreleased changes on Windows once they ship (1.4.1 was tested 2026-10-10: the map's window edge and the spacing around the panes came from that), and on macOS when possible
+- Date & Time editing (the user wants this next; the Date & Time tab is a placeholder). Design first: set an exact date/time or shift by an amount (camera clock off), which tags (`DateTimeOriginal`, `CreateDate`, `ModifyDate`, time zones), and whether to copy the time from another photo like New Location does
+- Windows installer for releases (instead of only the zip): compare options such as an MSI (WiX), Inno Setup, or MSIX, including Start menu shortcut, uninstall, upgrades over an older version, and signing/SmartScreen
+- In-app update check: look for a newer version on GitHub Releases (at startup or from Help) and link to the download
+- Picker: a way to add whole folders. A toggle switches the picker to show only folders; several folders can be selected; a checkbox (off by default) also adds the photos in their subfolders
 - Add drag-and-drop support for loading photos
 - Explore a future API/web/container layer (Docker on a Synology NAS) on top of the reusable `services/` backend
 

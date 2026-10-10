@@ -3,8 +3,8 @@
 ## Snapshot
 
 Last updated: 2026-10-09
-Version: 1.3 released (Linux, Windows, macOS); the app's own Add Photos picker merged to `main` for the next release
-Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
+Version: 1.4 released (Linux, Windows, macOS): the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system
+Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), a pop-out map for picking a location (OpenStreetMap, USGS, or Esri with the user's key), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
 
@@ -16,7 +16,7 @@ Key objectives:
 - Select one or many photos with the app's own picker (folder tree on the left, only photos on the right)
 - Display thumbnails in a grid, including real thumbnails for RAW files
 - View and copy GPS metadata
-- Apply GPS metadata to the photos selected in the grid, from typed, pasted, or photo-sourced coordinates
+- Apply GPS metadata to the photos selected in the grid, from typed, pasted, photo-sourced, or map-picked coordinates
 - Clear GPS metadata from selected photos
 - Support JPG and selected RAW formats: CR2, CR3, DNG
 - Run on Linux Mint, Windows 11, and macOS (Apple Silicon)
@@ -28,6 +28,7 @@ Key objectives:
 - `core/models.py`: shared data models such as `PhotoInfo` and `GpsCoordinates`
 - `core/coordinates.py`: latitude/longitude validation
 - `core/file_types.py`: supported extension checks
+- `core/map_tiles.py`: map tile math (Web Mercator, visible tiles, zoom to fit) and the tile sources (OpenStreetMap street map, USGS satellite imagery); no Qt
 - `core/places.py`: the picker's places and folder listings (bookmarks from the Linux file manager, network share names, system mounts to skip, hidden files per system); no Qt
 - `core/exiftool_wrapper.py`: ExifTool read/write/clear integration through one long-running `-stay_open` process; reads embedded RAW previews (small thumbnails are captured during the bulk GPS read to avoid reopening files); optional `keep_backups`
 - `core/process_guard.py`: starts helper processes (ExifTool) so they cannot outlive the app after a crash (shell watchdog on Linux/macOS, job object on Windows)
@@ -51,9 +52,9 @@ Key objectives:
 - `gui/system_thumbnails.py`: reads and writes the freedesktop.org thumbnail cache (`~/.cache/thumbnails`) shared with Nemo/Nautilus; PNG labels are read directly because Qt can't read `Thumb::MTime`
 - `gui/error_log.py`: `error-log.txt` in the app's data folder (Windows: `%LOCALAPPDATA%\Photo GPS Editor\Photo GPS Editor`); unexpected errors (with a pop-up), Qt warnings/fatals, hard-crash call stacks (faulthandler), and low-level stderr in windowed builds
 - `gui/gc_guard.py`: automatic garbage collection is off; a timer collects on the GUI thread between events
-- `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), `photo_picker.py` (the Add Photos picker), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
+- `gui/widgets/`: browser panel (Photo List pane: header, Show filter, selection bar, grid with click-to-add selection), editor panel (Photos to Change pane with tabs), `photo_picker.py` (the Add Photos picker), `map_view.py` (the map widget: tiles drawn with QPainter, downloaded by QNetworkAccessManager on the GUI thread into a disk cache; pin and photo dots), `map_window.py` (the pop-out map window and photo preview), `settings_dialog.py` (Edit > Settings: backups and the ArcGIS key), loading indicator, thumbnail delegate (shimmer placeholders, SOURCE marker, "No GPS" dimming, faded deselected photos), `icons.py` (line icons drawn in code)
 - `gui/presenters/`: UI-facing view-state builders; `inspector_state.py` holds the inspector logic with no Qt code
-- `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, and apply/remove workflows
+- `gui/window_mixins/`: focused behavior for the photo list, inspector, New Location / pick mode, the map (`map_picker.py`), and apply/remove workflows
 
 ## Current UI
 
@@ -82,11 +83,26 @@ test enforces this).
 - `Location` tab:
 - `New Location`: `Copy location` with `From a Photo in the Photo List` and `From a Photo on Your Computer`; latitude/longitude fields (decimal, DMS, DDM; a pasted pair auto-splits); `Paste`, `Clear`
 - `From a Photo in the Photo List` enters pick mode: the button becomes `Cancel`, a blue banner explains the mode, the grid switches to `Has GPS` (view buttons locked), and everything except `Add Photos`, `Clear List`, and `Cancel` is disabled; afterwards the previous view (and Only Show Selected Photos) returns, and the selection is kept. Disabled, with a hover hint, when no photo in the list has GPS
+- `Pick from a Map` opens the map window (below)
 - The location source shows on a blue card and as a blue `SOURCE` outline in the grid; editing the fields by hand drops it
 - `Apply Location to N Photos` (orange); a note warns when existing GPS will be replaced; the confirmation offers `Skip Photos with GPS`, `Replace`, or `Cancel`
 - `Remove GPS from Selected N Photos` (red outline, counts the selected photos that have GPS), with confirmation
 - `Date & Time` tab: placeholder until date/time editing is designed
 - Pop-ups for a browsed photo with no GPS and for an unreadable photo
+
+### Map window
+
+- Opened with `Pick from a Map` in New Location; a separate window that blocks the main window while open (application-modal, shown with `show()` like the picker, not a blocking `exec()`); `Done` (orange) or Esc closes it, then Apply in the main window writes the location
+- The map is another source for New Location, not a separate workflow: a quick click on the map (released within 0.30 s, moving under 2 px; a longer hold or any wiggle pans instead, so a sloppy click-and-hold doesn't move the pin; the click that brings the map window back from another program only activates it: Linux window managers activate the window just before delivering the click, so a click within 0.3 s of the window getting focus, from Qt's app-wide focus-window signal, is ignored) moves the blue pin there and fills the latitude/longitude fields (as typing would, so a location source photo is dropped); dragging the pin fills them when it is dropped. Apply writes them as usual
+- The pin follows New Location (typed, pasted, copied from a photo); the map moves to it only when it changed and is out of view; empty fields remove the pin
+- Photos in the Photo List with GPS show as neon purple dots with a white outline (green blended into the map), orange when selected. Hovering a dot shows the file name(s); clicking one shows a small preview (thumbnail, name, `Use This Location`, and `< 1 of 2 >` arrows beside the count when several photos' dots land on the same spot, within 2 px, so they look like one dot; nearby but separate dots each open their own preview; `Use This Location` uses the photo shown) and does not move the pin
+- While another program is active, the map shows the normal arrow and no photo-name hints (a click there only brings the window back); otherwise the pointer is a crosshair (drawn in code at the screen's scale, dark with a white halo; its hot spot is its center), a pointing hand over a photo dot, an open hand over the pin, and a closed hand as soon as the button is pressed (except on a dot); a readout under the map shows the coordinates under the mouse as it moves
+- Drag to pan, wheel or `+`/`-` to zoom (whole levels; opening may use an in-between level, drawn from the nearest level's tiles scaled); toolbar: `Street` and one satellite button (`Satellite` = Esri when a key is set in Edit > Settings, `US Satellite` = USGS when not), `Show All Photo Locations`, `Go to Selected Location`, zoom buttons. If Esri's imagery doesn't load (key refused, offline), an amber banner says to check the key in Edit > Settings and offers `Use US Satellite Instead` (the button then reads `US Satellite` until the map is opened again)
+- Street map: OpenStreetMap's tile server (identifying User-Agent, cache headers honored, no bulk downloads, credit shown). US Satellite: USGS The National Map orthoimagery (no key; no use constraints; United States only, detailed to zoom 16 and enlarged beyond; a note says so elsewhere). Esri Satellite: Esri World Imagery from the image tile service for API keys (`ibasemaps-api.arcgis.com`; worldwide, street-level detail to zoom 19 and beyond, 256-pixel tiles). The Static Basemap Tiles service has no imagery style (only imagery labels), and this service accepts the key only as `?token=` in the address, not in a header, so the key also appears in the tile cache's records. It needs the user's own API key from a free ArcGIS Location Platform account (an open-source app can't keep its own key secret; a Public application key with only the Static basemap tiles privilege works): the key is entered in Edit > Settings and saved in plain text in the app's settings. Without a key Esri answers 200 with a JSON "Token Required" error and the map shows a note; as of 2026-10-09 it serves imagery for any non-empty token, so a wrong key is not detected (usage shows in the ArcGIS dashboard a day later)
+- Tiles are kept in a 200 MB disk cache in the app's cache folder, so places viewed before show offline; a note appears when tiles can't be downloaded, and failed tiles are retried after 15 seconds
+- Each time it opens it shows the street map, centered on the photos in the Photo List with GPS, zoomed to fit them with a 12% margin on every side (zoom 15 at most, for one photo); with none, it shows the lower 48 states with the same margin. It does not jump to New Location when opening (`Go to Selected Location` does). The window size and position are remembered
+- Off while picking from the Photo List
+- QtWebEngine + Leaflet was rejected (about 200 MB more per build) and QtLocation/QML too (a second UI language, untested offscreen); dragging photos onto the map was considered and rejected
 
 ### Menus
 
@@ -101,7 +117,7 @@ test enforces this).
 - `Select All Photos`
 - `Copy GPS Coordinates`
 - `Paste Coordinates`
-- `Keep Backup Copies of Originals` (saved between sessions)
+- `Settings...` (Ctrl+, / Cmd+,; Qt's standard Preferences key is the "Settings" media key on Linux; on macOS in the app menu): a modal window (shown with `show()`) with Backups (`Keep Backup Copies of Originals`, saved between sessions) and the Esri Satellite key (instructions and links, Paste, Remove Key); Save applies, Cancel changes nothing
 
 - Help:
 - `About` includes the GitHub repository link
@@ -138,7 +154,6 @@ test enforces this).
 
 - Add drag-and-drop support for loading photos
 - Design a new GPS badge icon to replace the satellite icon
-- Add a map view for seeing photo locations and picking a new one
 - Explore a future API/web/container layer (Docker on a Synology NAS) on top of the reusable `services/` backend
 
 ## Development Notes
@@ -147,6 +162,8 @@ test enforces this).
 - Run the app with `.venv/bin/python app.py`
 - Run tests with `.venv/bin/python -m unittest discover -s tests` (add `QT_QPA_PLATFORM=offscreen` to run without a display)
 - GitHub Actions (`.github/workflows/build.yml`) runs the tests and builds Linux, Windows, and macOS apps on every push; pushing a `v*` tag attaches the builds to that release
+- On Linux, `app.py` sets `XCURSOR_SIZE`/`XCURSOR_THEME` from the desktop's gsettings (Cinnamon, then GNOME) before Qt starts, unless already set: otherwise Qt sizes the pointer from the font DPI and it looks a little smaller inside the app
+- All three builds bundle the same pinned ExifTool (`packaging/fetch_exiftool.py`, currently 13.59); Linux and macOS use ExifTool's Perl distribution with the system Perl
 - Pull requests are merged with GitHub's merge button (merge commit)
 - GUI uses PySide6
 - Metadata reading/writing uses ExifTool

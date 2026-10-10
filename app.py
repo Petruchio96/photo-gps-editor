@@ -1,3 +1,6 @@
+import os
+import shutil
+import subprocess
 import sys
 
 from PySide6.QtGui import QIcon
@@ -18,6 +21,51 @@ MISSING_EXIFTOOL_MESSAGE = (
 )
 
 
+# Where Linux desktops keep the mouse pointer size and theme, checked in order.
+DESKTOP_INTERFACE_SCHEMAS = ("org.cinnamon.desktop.interface", "org.gnome.desktop.interface")
+
+
+def _gsettings_value(schema: str, key: str) -> str:
+    """
+    One gsettings value as text without quotes, or "" if it can't be read.
+    """
+    try:
+        result = subprocess.run(
+            ["gsettings", "get", schema, key],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip().strip("'")
+
+
+def match_desktop_cursor() -> None:
+    """
+    Use the desktop's mouse pointer size and theme on Linux.
+
+    Cinnamon and GNOME keep them in gsettings, which only GTK apps read. Qt
+    reads XCURSOR_SIZE / XCURSOR_THEME (or Xcursor.size in the X settings)
+    and otherwise works the size out from the font DPI, which can make the
+    pointer a little smaller inside the app. Must run before QApplication.
+    Settings the user made themselves (the environment variables) win.
+    """
+    if not sys.platform.startswith("linux") or shutil.which("gsettings") is None:
+        return
+    for schema in DESKTOP_INTERFACE_SCHEMAS:
+        size = _gsettings_value(schema, "cursor-size")
+        if not size.isdigit() or int(size) <= 0:
+            continue
+        os.environ.setdefault("XCURSOR_SIZE", size)
+        theme = _gsettings_value(schema, "cursor-theme")
+        if theme:
+            os.environ.setdefault("XCURSOR_THEME", theme)
+        return
+
+
 def exiftool_is_ready() -> bool:
     """
     Check for ExifTool before the main window opens.
@@ -33,6 +81,7 @@ def exiftool_is_ready() -> bool:
 
 
 def main() -> int:
+    match_desktop_cursor()
     app = QApplication(sys.argv)
     app.setApplicationName("Photo GPS Editor")
     app.setOrganizationName("Photo GPS Editor")

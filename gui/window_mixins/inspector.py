@@ -41,6 +41,7 @@ class InspectorMixin:
 
         self.remove_gps_button.setText(state.remove_gps_label)
         self.remove_gps_button.setEnabled(state.can_remove_gps)
+        self._refresh_map()
         self._apply_pick_mode_lock()
 
     def _set_tone(self, widget, tone: str) -> None:

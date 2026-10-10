@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.widgets.browser_panel import build_pane_header
-from gui.widgets.icons import clock_icon, pin_icon
+from gui.widgets.icons import clock_icon, map_icon, pin_icon
 
 if TYPE_CHECKING:
     from gui.main_window import MainWindow
@@ -110,6 +110,16 @@ def _build_location_group(window: "MainWindow") -> QGroupBox:
     copy_buttons.addWidget(window.pick_location_button, 1)
     copy_buttons.addWidget(window.location_from_photo_button, 1)
 
+    # Opens the pop-out map: click it or drag the pin to fill the fields.
+    window.show_map_button = QPushButton("Pick from a Map")
+    window.show_map_button.setObjectName("pickButton")
+    window.show_map_button.setIcon(map_icon("#1f5fc4"))
+    window.show_map_button.setToolTip(
+        "Open a map: click it, or drag the pin, to set the New Location. "
+        "Photos in the Photo List with GPS show as dots."
+    )
+    window.show_map_button.clicked.connect(window.show_map)
+
     # Shows which photo the location came from, when it came from one.
     window.source_card = QFrame()
     window.source_card.setObjectName("sourceCard")
@@ -167,6 +177,7 @@ def _build_location_group(window: "MainWindow") -> QGroupBox:
 
     location_layout.addWidget(copy_label)
     location_layout.addLayout(copy_buttons)
+    location_layout.addWidget(window.show_map_button)
     location_layout.addWidget(window.source_card)
     location_layout.addLayout(fields)
     location_layout.addLayout(location_buttons)

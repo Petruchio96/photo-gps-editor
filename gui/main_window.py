@@ -28,9 +28,11 @@ from gui.thumbnail_loader import ThumbnailLoader
 from gui.widgets.browser_panel import build_browser_panel
 from gui.widgets.editor_panel import build_editor_panel
 from gui.widgets.photo_picker import PhotoPickerDialog
+from gui.widgets.settings_dialog import SettingsDialog
 from gui.window_mixins.apply_workflow import ApplyWorkflowMixin
 from gui.window_mixins.inspector import InspectorMixin
 from gui.window_mixins.location_editor import LocationEditorMixin
+from gui.window_mixins.map_picker import ESRI_KEY_SETTING, MapPickerMixin
 from gui.window_mixins.photo_list import THUMBNAIL_BATCH_SIZE, PhotoListMixin
 from services.gps_edit_history import GpsEditHistory, PhotoListSnapshot
 from services.models import OverwriteEntry, WorkflowSession
@@ -53,6 +55,7 @@ STATUS_MESSAGE_MS = 12000
 class MainWindow(
     InspectorMixin,
     LocationEditorMixin,
+    MapPickerMixin,
     PhotoListMixin,
     ApplyWorkflowMixin,
     QMainWindow,
@@ -63,6 +66,9 @@ class MainWindow(
     This class focuses on window setup and shared Qt-level concerns while
     mixins handle the larger groups of UI actions.
     """
+
+    # Sent with map tile downloads (the User-Agent).
+    app_version = APP_VERSION
 
     def __init__(self, settings: QSettings | None = None) -> None:
         super().__init__()
@@ -207,17 +213,14 @@ class MainWindow(
 
         edit_menu.addSeparator()
 
-        self.keep_backups_action = QAction("Keep Backup Copies of Originals", self)
-        self.keep_backups_action.setCheckable(True)
-        self.keep_backups_action.setToolTip(
-            "Before a photo is first changed, save an untouched copy next to it "
-            'with "_original" added to the file name.'
-        )
-        self.keep_backups_action.setChecked(
-            self.settings.value(KEEP_BACKUPS_SETTING, False, type=bool)
-        )
-        self.keep_backups_action.toggled.connect(self.set_keep_backups)
-        edit_menu.addAction(self.keep_backups_action)
+        # Backups and the Esri key. On macOS Qt moves it to the app menu.
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setMenuRole(QAction.MenuRole.PreferencesRole)
+        # Ctrl+, (Cmd+, on macOS). Qt's standard Preferences key is the
+        # "Settings" media key on Linux, which showed as "Settings Settings".
+        self.settings_action.setShortcut(QKeySequence("Ctrl+,"))
+        self.settings_action.triggered.connect(self.open_settings)
+        edit_menu.addAction(self.settings_action)
 
         help_menu = self.menuBar().addMenu("&Help")
 
@@ -237,6 +240,10 @@ class MainWindow(
         self._shimmer_clock = QElapsedTimer()
 
     def closeEvent(self, event) -> None:
+        settings_dialog = getattr(self, "_settings_dialog", None)
+        if settings_dialog is not None and settings_dialog.isVisible():
+            settings_dialog.reject()
+        self._close_map_window()
         self.stop_background_work()
         super().closeEvent(event)
 
@@ -480,6 +487,33 @@ class MainWindow(
         dialog.setStandardButtons(QMessageBox.Ok)
         dialog.exec()
 
+    def open_settings(self) -> None:
+        """
+        Open Edit > Settings. Modal like the picker, shown with show() (not
+        a blocking exec()); Save applies the values when it closes.
+        """
+        dialog = SettingsDialog(
+            self,
+            keep_backups=self.keep_backups,
+            esri_key=self.settings.value(ESRI_KEY_SETTING, "", type=str),
+        )
+        # Kept so tests (and late signals) find a live object.
+        self._settings_dialog = dialog
+
+        def closed(result: int) -> None:
+            if result != QDialog.Accepted:
+                return
+            self.set_keep_backups(dialog.keep_backups())
+            self.set_esri_key(dialog.esri_key())
+
+        dialog.finished.connect(closed)
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.show()
+
+    @property
+    def keep_backups(self) -> bool:
+        return self.settings.value(KEEP_BACKUPS_SETTING, False, type=bool)
+
     def set_keep_backups(self, keep_backups: bool) -> None:
         """
         Turn backup copies on or off, and remember the choice.
@@ -489,7 +523,7 @@ class MainWindow(
 
     def _apply_backup_setting(self) -> None:
         # The writer is ExifToolWrapper in the app; test fakes simply ignore it.
-        self.workflow.writer.keep_backups = self.keep_backups_action.isChecked()
+        self.workflow.writer.keep_backups = self.keep_backups
 
     def _default_photo_directory(self) -> Path:
         """

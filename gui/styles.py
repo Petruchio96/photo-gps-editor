@@ -699,6 +699,56 @@ QPushButton#pickCancel {
     border: none;
     padding: 6px 14px;
 }
+QLabel#mapHint {
+    color: #556579;
+}
+QLabel#mapReadout {
+    color: #31445a;
+    font-weight: 600;
+}
+QFrame#mapProblem {
+    background: #fff7e6;
+    border: 1px solid #f0c27a;
+    border-radius: 8px;
+}
+QLabel#mapProblemText {
+    color: #7a4a00;
+}
+QPushButton#previewStep {
+    background: transparent;
+    border: none;
+    color: #1f5fc4;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 0px 6px;
+    min-width: 0px;
+}
+QPushButton#previewStep:hover {
+    color: #17428a;
+    background: #e8f1ff;
+    border-radius: 4px;
+}
+QLabel#previewCount {
+    color: #31445a;
+}
+QLabel#settingsHelp {
+    color: #556579;
+}
+QLabel#mapAttribution {
+    background: rgba(255, 255, 255, 210);
+    color: #31445a;
+    font-size: 11px;
+    padding: 2px 6px;
+}
+QFrame#mapPreview {
+    background: #ffffff;
+    border: 1px solid #cad6e2;
+    border-radius: 8px;
+}
+QLabel#mapPreviewName {
+    color: #102033;
+    font-weight: 600;
+}
 QFrame#sourceCard {
     background: #e3eeff;
     border: 1px solid #8cb7f0;

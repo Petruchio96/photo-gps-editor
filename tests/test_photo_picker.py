@@ -268,7 +268,13 @@ class PhotoPickerTests(unittest.TestCase):
                 break
             QTest.qWait(10)
         self.assertFalse(dialog.grid.item(0).data(SHIMMER_ROLE))
-        # GPS badges arrive with the thumbnails.
+        # GPS badges arrive in a second pass after the thumbnails: wait for
+        # it too (a slow machine may not have it yet).
+        for _ in range(200):
+            QApplication.processEvents()
+            if dialog.grid.item(1).data(HAS_GPS_ROLE):
+                break
+            QTest.qWait(10)
         self.assertTrue(dialog.grid.item(1).data(HAS_GPS_ROLE))
         self.assertFalse(dialog.grid.item(0).data(HAS_GPS_ROLE))
 

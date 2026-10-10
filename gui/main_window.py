@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QElapsedTimer, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QDialog,
     QLabel,
@@ -38,7 +39,7 @@ from services.gps_edit_history import GpsEditHistory, PhotoListSnapshot
 from services.models import OverwriteEntry, WorkflowSession
 from services.workflow_facade import PhotoWorkflowFacade
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.4.1"
 
 # QSettings key for the "Keep Backup Copies of Originals" option.
 KEEP_BACKUPS_SETTING = "keep_backup_copies"
@@ -96,6 +97,8 @@ class MainWindow(
         self._location_source = None
         self._picking_location = False
         self._filter_before_pick = None
+        # Message boxes open right now (see show_message).
+        self._open_messages: list[QMessageBox] = []
         self._last_status_message = ""
         self._last_status_tone = "info"
         self._status_undo_link = False
@@ -485,7 +488,36 @@ class MainWindow(
         )
         dialog.setDetailedText("\n".join(failed_paths))
         dialog.setStandardButtons(QMessageBox.Ok)
-        dialog.exec()
+        self.show_message(dialog)
+
+    def show_message(
+        self,
+        dialog: QMessageBox,
+        on_closed: Callable[[QAbstractButton | None], None] | None = None,
+    ) -> None:
+        """
+        Show a message box without blocking: modal (the rest of the app waits
+        for it), but shown with show(), not exec(). exec() runs a second event
+        loop inside the code that opened it, and background results arriving
+        inside that loop crashed the Windows build.
+
+        on_closed(button) runs when it closes, with the button clicked (None
+        if it was closed another way).
+        """
+        # Kept until it closes, so Python doesn't delete it while it's open.
+        self._open_messages.append(dialog)
+
+        def closed(_result: int) -> None:
+            if dialog in self._open_messages:
+                self._open_messages.remove(dialog)
+            if on_closed is not None:
+                on_closed(dialog.clickedButton())
+
+        dialog.finished.connect(closed)
+        # Application-modal and show(), not open(): open() makes it a sheet
+        # on macOS (see _open_photo_picker).
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.show()
 
     def open_settings(self) -> None:
         """
@@ -621,7 +653,7 @@ class MainWindow(
         return [entry.display_text() for entry in overwrite_entries]
 
     def show_about_dialog(self) -> None:
-        self._build_about_dialog().exec()
+        self.show_message(self._build_about_dialog())
 
     def _build_about_dialog(self) -> QMessageBox:
         repo_url = "https://github.com/Petruchio96/photo-gps-editor"

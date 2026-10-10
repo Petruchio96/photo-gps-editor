@@ -9,7 +9,7 @@ them. The pin also follows coordinates already in New Location.
 The window is modal (the main window can't be used while it is open, but
 it is shown with show(), not a blocking exec()); Done or Esc closes it, and
 the New Location it set is then ready to apply. Photos in
-the Photo List with GPS show as purple dots (orange when selected); hovering one
+the Photo List with GPS show as blue dots (orange when selected); hovering one
 shows its file name, and clicking one shows a small preview.
 """
 
@@ -39,7 +39,7 @@ from core.map_tiles import (
 from gui.widgets.map_view import MapView, PhotoPin, TileFetcher
 
 MAP_HINT = (
-    "Click the map to set the New Location, or drag the blue pin. "
+    "Click the map to set the New Location, or drag the orange pin. "
     "Then click Done, and Apply in the main window."
 )
 
@@ -174,6 +174,8 @@ class MapWindow(QWidget):
     location_picked = Signal(float, float)
     use_photo_location = Signal(str)
     view_changed = Signal()
+    # Clear: empty New Location (the pin goes away) to start over.
+    clear_requested = Signal()
 
     def __init__(
         self,
@@ -226,8 +228,13 @@ class MapWindow(QWidget):
         self.done_button.setMinimumWidth(110)
         self.done_button.setToolTip("Close the map and go back to the main window (Esc)")
         self.done_button.clicked.connect(self.close)
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.setProperty("tone", "neutral")
+        self.clear_button.setMinimumWidth(110)
+        self.clear_button.clicked.connect(self.clear_requested)
         bottom = QHBoxLayout()
         bottom.addWidget(self.readout_label, 1)
+        bottom.addWidget(self.clear_button)
         bottom.addWidget(self.done_button)
         layout.addLayout(bottom)
         self._update_buttons()
@@ -409,9 +416,16 @@ class MapWindow(QWidget):
             else "No photos in the Photo List have GPS"
         )
         has_pin = self.map_view.pin is not None
+        if hasattr(self, "clear_button"):
+            self.clear_button.setEnabled(has_pin)
+            self.clear_button.setToolTip(
+                "Remove the orange pin and empty New Location, to start over"
+                if has_pin
+                else "No location selected yet"
+            )
         self.show_pin_button.setEnabled(has_pin)
         self.show_pin_button.setToolTip(
-            "Move the map to the blue pin (the New Location)"
+            "Move the map to the orange pin (the New Location)"
             if has_pin
             else "No location selected yet: click the map to place the pin"
         )

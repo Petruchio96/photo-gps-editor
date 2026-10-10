@@ -617,7 +617,8 @@ class PhotoListMixin:
         # The title sits at the bottom, close to its photos.
         layout.addStretch(1)
 
-        # Green for "has GPS", amber for "needs GPS" (see styles.py).
+        # Blue for "has GPS" (what exists), orange for "needs GPS" (what will
+        # change); see styles.py.
         dot = QLabel("●")
         dot.setObjectName("groupDot")
         dot.setProperty("group", group)
@@ -691,7 +692,11 @@ class PhotoListMixin:
         menu.addAction(use_action)
         menu.addSeparator()
         menu.addAction(remove_action)
-        menu.exec(self.list_widget.viewport().mapToGlobal(position))
+        # popup(), not exec(): exec() blocks in a second event loop, where
+        # background results arriving crashed the Windows build. The menu
+        # deletes itself once closed (its actions belong to the window).
+        menu.setAttribute(Qt.WA_DeleteOnClose)
+        menu.popup(self.list_widget.viewport().mapToGlobal(position))
 
     def copy_gps_coordinates(
         self,

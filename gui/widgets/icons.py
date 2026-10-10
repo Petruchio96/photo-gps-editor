@@ -73,6 +73,59 @@ def map_icon(color: str) -> QIcon:
     return _icon(color, draw)
 
 
+def location_pin_path(tip: QPointF, width: float, height: float) -> QPainterPath:
+    """
+    An upside-down teardrop pin whose point is at tip: the map's New
+    Location pin and the GPS badge on thumbnails.
+    """
+    radius = width / 2
+    head_center = QPointF(tip.x(), tip.y() - height + radius)
+    path = QPainterPath(tip)
+    path.cubicTo(
+        QPointF(tip.x() - radius * 0.3, tip.y() - radius * 0.9),
+        QPointF(tip.x() - radius, head_center.y() + radius * 0.6),
+        QPointF(tip.x() - radius, head_center.y()),
+    )
+    path.arcTo(QRectF(head_center.x() - radius, head_center.y() - radius, width, width), 180, -180)
+    path.cubicTo(
+        QPointF(tip.x() + radius, head_center.y() + radius * 0.6),
+        QPointF(tip.x() + radius * 0.3, tip.y() - radius * 0.9),
+        tip,
+    )
+    return path
+
+
+def draw_location_pin(
+    painter: QPainter,
+    tip: QPointF,
+    *,
+    width: float,
+    height: float,
+    fill: QColor,
+    outline: float = 2.0,
+    dot_radius: float = 4.5,
+    shadow: bool = False,
+) -> None:
+    """
+    Draw the teardrop pin: fill color, a white border, and a white dot in
+    its head. With shadow, a soft shadow helps it stand out on a photo.
+    """
+    path = location_pin_path(tip, width, height)
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    if shadow:
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 70))
+        painter.drawPath(path.translated(1.0, 1.5))
+    painter.setPen(QPen(QColor("#ffffff"), outline))
+    painter.setBrush(fill)
+    painter.drawPath(path)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawEllipse(QPointF(tip.x(), tip.y() - height + width / 2), dot_radius, dot_radius)
+    painter.restore()
+
+
 def clock_icon(color: str) -> QIcon:
     """Clock face, for the Date & Time tab."""
 

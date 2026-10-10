@@ -75,6 +75,7 @@ class MapPickerMixin:
         window = MapWindow(self, fetcher=self._create_tile_fetcher(), icon_for=self._map_photo_icon)
         window.location_picked.connect(self._use_map_location)
         window.use_photo_location.connect(lambda path: self.use_location_from_path(Path(path)))
+        window.clear_requested.connect(self.clear_location_fields)
         window.set_esri_key(self.settings.value(ESRI_KEY_SETTING, "", type=str))
         return window
 

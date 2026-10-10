@@ -792,7 +792,9 @@ class MapView(QWidget):
             return
         position = event.position()
         self._press_pos = position
-        self._press_time = time.monotonic()
+        # perf_counter: Windows' monotonic clock only ticks every ~16 ms,
+        # too coarse to order the window's activation and a click.
+        self._press_time = time.perf_counter()
         self._press_window_active = self._window_active
         self._press_center = (self._center_x, self._center_y)
         self._press_on_pin = self._is_on_pin(position)
@@ -850,13 +852,13 @@ class MapView(QWidget):
             global_point = event.globalPosition().toPoint()
             self.photo_pins_clicked.emit(paths, global_point.x(), global_point.y())
             return
-        held = time.monotonic() - self._press_time
+        held = time.perf_counter() - self._press_time
         if held > QUICK_CLICK_SECONDS:
             # Held, not clicked: grabbing the map, not choosing a place.
             return
         if (
             not self._press_window_active
-            or self._activated_at >= self._press_time - ACTIVATION_CLICK_SECONDS
+            or self._activated_at > self._press_time - ACTIVATION_CLICK_SECONDS
         ):
             # This click switched back to the window (from another app):
             # it doesn't choose a place.
@@ -898,7 +900,7 @@ class MapView(QWidget):
         active = self._has_focus_window()
         if active and not self._window_active:
             # Back from another program (not just from the photo preview).
-            self._activated_at = time.monotonic()
+            self._activated_at = time.perf_counter()
         self._window_active = active
         if not active:
             QToolTip.hideText()

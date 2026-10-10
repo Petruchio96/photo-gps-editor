@@ -206,7 +206,7 @@ class MapViewTests(unittest.TestCase):
         other.show()
         other.activateWindow()
         QTest.qWaitForWindowActive(other)
-        before = time.monotonic()
+        before = time.perf_counter()
 
         self.view.activateWindow()
         QTest.qWaitForWindowActive(self.view)
@@ -220,12 +220,12 @@ class MapViewTests(unittest.TestCase):
 
         with patch("gui.widgets.map_view.ACTIVATION_CLICK_SECONDS", 0.3):
             # The window becomes active as the click arrives.
-            self.view._activated_at = time.monotonic()
+            self.view._activated_at = time.perf_counter()
             QTest.mouseClick(self.view, Qt.LeftButton, Qt.NoModifier, point)
             self.assertEqual(self.picked, [])
 
             # The next click (the window was already active) works.
-            self.view._activated_at = time.monotonic() - 5
+            self.view._activated_at = time.perf_counter() - 5
             QTest.mouseClick(self.view, Qt.LeftButton, Qt.NoModifier, point)
         self.assertEqual(len(self.picked), 1)
 
@@ -233,7 +233,7 @@ class MapViewTests(unittest.TestCase):
         self.view.set_pin((40.5865, -111.6558))
         point = QPoint(200, 150)
 
-        with patch("gui.widgets.map_view.time.monotonic", side_effect=[100.0, 100.6]):
+        with patch("gui.widgets.map_view.time.perf_counter", side_effect=[100.0, 100.6]):
             QTest.mousePress(self.view, Qt.LeftButton, Qt.NoModifier, point)
             QTest.mouseRelease(self.view, Qt.LeftButton, Qt.NoModifier, point)
 

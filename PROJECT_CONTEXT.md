@@ -2,8 +2,8 @@
 
 ## Snapshot
 
-Last updated: 2026-10-09
-Version: 1.4.1 released (Linux, Windows, macOS). 1.4: the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system. 1.4.1: the blue pin GPS badge, the blue = existing / orange = new color theme, the map's Clear button, and no blocking dialogs. Not released yet (for the next version): deselect after Apply, the map's Back button and zoom from a photo's preview, backups named `<name>_original.<ext>` (only for photos that had GPS), tighter window spacing, and a clearer window edge on Windows 11
+Last updated: 2026-10-10
+Version: 1.4.1 released (Linux, Windows, macOS). 1.4: the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system. 1.4.1: the blue pin GPS badge, the blue = existing / orange = new color theme, the map's Clear button, and no blocking dialogs. Merged to `main` but not released yet (PR #10; ships with the next version, no bump for incremental work): deselect after Apply, the map's Back button and zoom from a photo's preview, backups named `<name>_original.<ext>` (only for photos that had GPS), tighter window spacing, and a clearer window edge on Windows 11
 Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), a pop-out map for picking a location (OpenStreetMap, USGS, or Esri with the user's key), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
@@ -160,10 +160,15 @@ callback) and the right-click menu uses `popup()`; the blocking `QMessageBox.war
 
 ## Future Ideas
 
-- Next: hand-test the unreleased changes on Windows once they ship (1.4.1 was tested 2026-10-10: the map's window edge and the spacing around the panes came from that), and on macOS when possible
-- Date & Time editing (the user wants this next; the Date & Time tab is a placeholder). Design first: set an exact date/time or shift by an amount (camera clock off), which tags (`DateTimeOriginal`, `CreateDate`, `ModifyDate`, time zones), and whether to copy the time from another photo like New Location does
+Next up, in order:
+
+1. Date & Time editing: the next feature (the Date & Time tab is a placeholder). Start with a design discussion before code: set an exact date/time or shift by an amount (camera clock off), which tags (`DateTimeOriginal`, `CreateDate`, `ModifyDate`, time zones/offsets, RAW vs JPG), whether to copy the time from another photo like New Location does, how it shows in the Photos to Change pane and the grid, undo/redo and backups (reuse the GPS ones), and the blue = existing / orange = new colors. Likely a version bump (significant feature)
+2. Check on Windows (and macOS when possible) the changes merged in PR #10, from the latest `main` CI build or the next release: the slate border on the map, picker, and Settings windows; spacing; Back/zoom on the map; backups added to the list and deleted by Undo
+3. In-app update check: look for a newer version on GitHub Releases (at startup or from Help) and link to the download
+
+Later:
+
 - Windows installer for releases (instead of only the zip): compare options such as an MSI (WiX), Inno Setup, or MSIX, including Start menu shortcut, uninstall, upgrades over an older version, and signing/SmartScreen
-- In-app update check: look for a newer version on GitHub Releases (at startup or from Help) and link to the download
 - Picker: a way to add whole folders. A toggle switches the picker to show only folders; several folders can be selected; a checkbox (off by default) also adds the photos in their subfolders
 - Add drag-and-drop support for loading photos
 - Explore a future API/web/container layer (Docker on a Synology NAS) on top of the reusable `services/` backend

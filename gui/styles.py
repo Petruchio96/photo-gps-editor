@@ -261,7 +261,7 @@ QLabel#thumbnailGroupHeader {
 }
 QLabel#thumbnailGroupHeader[group="gps"],
 QLabel#groupDot[group="gps"] {
-    color: #2f7d4f;
+    color: #1f5fc4;
 }
 QLabel#thumbnailGroupHeader[group="no_gps"],
 QLabel#groupDot[group="no_gps"] {
@@ -408,8 +408,8 @@ QPushButton#filterButton:checked {
     border-color: #26425f;
 }
 QPushButton#filterButton[filter="needs"]:checked {
-    background: #b45f06;
-    border-color: #b45f06;
+    background: #d97706;
+    border-color: #d97706;
 }
 QPushButton#filterButton:checked:disabled {
     background: #8fa1b4;
@@ -417,12 +417,12 @@ QPushButton#filterButton:checked:disabled {
     border-color: #8fa1b4;
 }
 QPushButton#filterButton[filter="needs"]:checked:disabled {
-    background: #d9a46b;
-    border-color: #d9a46b;
+    background: #e8b97a;
+    border-color: #e8b97a;
 }
 QPushButton#filterButton[filter="has"]:checked:disabled {
-    background: #8fbf9f;
-    border-color: #8fbf9f;
+    background: #8fb4ef;
+    border-color: #8fb4ef;
 }
 QDialog#photoPicker {
     background: #eef3f8;
@@ -512,8 +512,8 @@ QPushButton#onlySelectedButton:disabled {
     border-color: #d7dee5;
 }
 QPushButton#filterButton[filter="has"]:checked {
-    background: #2f7d4f;
-    border-color: #2f7d4f;
+    background: #1f6feb;
+    border-color: #1f6feb;
 }
 QFrame#paneHeader {
     border: none;

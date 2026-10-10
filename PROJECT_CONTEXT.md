@@ -3,7 +3,7 @@
 ## Snapshot
 
 Last updated: 2026-10-09
-Version: 1.4 released (Linux, Windows, macOS): the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system
+Version: 1.4.1 released (Linux, Windows, macOS). 1.4: the app's own Add Photos picker, the map (Pick from a Map, street map and satellite imagery), Edit > Settings, and the same pinned ExifTool on every system. 1.4.1: the blue pin GPS badge, the blue = existing / orange = new color theme, the map's Clear button, and no blocking dialogs
 Status: Two-pane layout (Photo List and Photos to Change, with Location and Date & Time tabs), the app's own photo picker (folder tree, only photos), a pop-out map for picking a location (OpenStreetMap, USGS, or Esri with the user's key), fast thumbnails (shared Linux thumbnail cache, embedded JPEG thumbnails), background loading, failure-tolerant writes, undo/redo that restores the photo list, optional backups, an error log, and CI builds for Linux, Windows, and macOS.
 
 Repository: https://github.com/Petruchio96/photo-gps-editor
@@ -48,7 +48,7 @@ Key objectives:
 
 - `gui/main_window.py`: shell window, menus, status row messages, selection bar state, undo/redo actions
 - `gui/background.py`: one background thread for loading GPS data and thumbnails; results go back to the GUI thread through a plain Python queue (a data-free signal only wakes the GUI thread; passing Python objects through queued signals crashed on Windows); waits for the running job before the app exits
-- `gui/thumbnail_loader.py`: thumbnail generation, cheapest source first: the shared Linux thumbnail cache, embedded previews (RAW previews; the small EXIF thumbnail near the start of JPEGs), then the whole JPEG; cropped and rotated upright; fallback icons, GPS badge overlay, and icon caching
+- `gui/thumbnail_loader.py`: thumbnail generation, cheapest source first: the shared Linux thumbnail cache, embedded previews (RAW previews; the small EXIF thumbnail near the start of JPEGs), then the whole JPEG; cropped and rotated upright; fallback icons, the GPS badge (a teardrop pin in the app's blue, `#1f6feb`, with a white border and dot, drawn in code by `gui/widgets/icons.py`; the map's New Location pin is the same pin in orange), and icon caching
 - `gui/system_thumbnails.py`: reads and writes the freedesktop.org thumbnail cache (`~/.cache/thumbnails`) shared with Nemo/Nautilus; PNG labels are read directly because Qt can't read `Thumb::MTime`
 - `gui/error_log.py`: `error-log.txt` in the app's data folder (Windows: `%LOCALAPPDATA%\Photo GPS Editor\Photo GPS Editor`); unexpected errors (with a pop-up), Qt warnings/fatals, hard-crash call stacks (faulthandler), and low-level stderr in windowed builds
 - `gui/gc_guard.py`: automatic garbage collection is off; a timer collects on the GUI thread between events
@@ -59,10 +59,15 @@ Key objectives:
 ## Current UI
 
 The photos selected in the Photo List are the photos being edited. Color has
-one meaning each: navy = Photo List, orange/brown = selection and the Apply
-action, blue = location source, green/amber = has/needs GPS. The window title
+one meaning each, where possible: blue = what exists (the location source,
+photos that have GPS: the Has GPS view, its heading, the GPS badge pin on
+thumbnails, and the photo dots on the map), orange = what is new or will change
+(the selection, the Apply action, the Needs GPS view and heading, and the New
+Location pin), navy = Photo List (and the All view). The window title
 is the OS title bar (no in-app title bar). Every button has a hover hint (a
-test enforces this).
+test enforces this). No dialog or menu blocks with `exec()` (a test enforces
+this): message boxes use `MainWindow.show_message` (modal, `show()` plus a
+callback) and the right-click menu uses `popup()`.
 
 ### Left: Photo List
 
@@ -72,7 +77,7 @@ test enforces this).
 - The selection is the same in every view; photos hidden by the view stay selected and are still acted on
 - Selection bar inside the grid: `N selected | Select All | Deselect All | Remove from List`; white with nothing selected, orange with a selection
 - Groups photos without GPS first, then photos with GPS, with colored headings; the divider shows only between two groups shown
-- Shows GPS badges on thumbnails that already have GPS
+- Shows a GPS badge (a blue pin) on thumbnails that already have GPS
 - Selection: click or Ctrl+click adds/removes a photo; Shift+click adds a range; empty clicks and drags do nothing; Ctrl+A and `Select All` add the photos shown; arrow keys move focus without changing the selection; Space toggles; Delete removes the selected photos from the list
 - Right-click: `Copy GPS Coordinates`, `Use This Location`, `Remove from List` (does not change the selection)
 - Status row under the grid appears only for action results (with an `Undo` link), errors, and loading progress
@@ -92,10 +97,10 @@ test enforces this).
 
 ### Map window
 
-- Opened with `Pick from a Map` in New Location; a separate window that blocks the main window while open (application-modal, shown with `show()` like the picker, not a blocking `exec()`); `Done` (orange) or Esc closes it, then Apply in the main window writes the location
-- The map is another source for New Location, not a separate workflow: a quick click on the map (released within 0.30 s, moving under 2 px; a longer hold or any wiggle pans instead, so a sloppy click-and-hold doesn't move the pin; the click that brings the map window back from another program only activates it: Linux window managers activate the window just before delivering the click, so a click within 0.3 s of the window getting focus, from Qt's app-wide focus-window signal, is ignored) moves the blue pin there and fills the latitude/longitude fields (as typing would, so a location source photo is dropped); dragging the pin fills them when it is dropped. Apply writes them as usual
+- Opened with `Pick from a Map` in New Location; a separate window that blocks the main window while open (application-modal, shown with `show()` like the picker, not a blocking `exec()`); `Clear` (next to Done) empties New Location and removes the pin to start over; `Done` (orange) or Esc closes it, then Apply in the main window writes the location
+- The map is another source for New Location, not a separate workflow: a quick click on the map (released within 0.30 s, moving under 2 px; a longer hold or any wiggle pans instead, so a sloppy click-and-hold doesn't move the pin; the click that brings the map window back from another program only activates it: Linux window managers activate the window just before delivering the click, so a click within 0.3 s of the window getting focus, from Qt's app-wide focus-window signal, is ignored) moves the orange pin there and fills the latitude/longitude fields (as typing would, so a location source photo is dropped); dragging the pin fills them when it is dropped. Apply writes them as usual
 - The pin follows New Location (typed, pasted, copied from a photo); the map moves to it only when it changed and is out of view; empty fields remove the pin
-- Photos in the Photo List with GPS show as neon purple dots with a white outline (green blended into the map), orange when selected. Hovering a dot shows the file name(s); clicking one shows a small preview (thumbnail, name, `Use This Location`, and `< 1 of 2 >` arrows beside the count when several photos' dots land on the same spot, within 2 px, so they look like one dot; nearby but separate dots each open their own preview; `Use This Location` uses the photo shown) and does not move the pin
+- Photos in the Photo List with GPS show as blue dots (the app's `#1f6feb`) with a white outline, orange when selected (green blended into the map, and purple was tried and dropped). Hovering a dot shows the file name(s); clicking one shows a small preview (thumbnail, name, `Use This Location`, and `< 1 of 2 >` arrows beside the count when several photos' dots land on the same spot, within 2 px, so they look like one dot; nearby but separate dots each open their own preview; `Use This Location` uses the photo shown) and does not move the pin
 - While another program is active, the map shows the normal arrow and no photo-name hints (a click there only brings the window back); otherwise the pointer is a crosshair (drawn in code at the screen's scale, dark with a white halo; its hot spot is its center), a pointing hand over a photo dot, an open hand over the pin, and a closed hand as soon as the button is pressed (except on a dot); a readout under the map shows the coordinates under the mouse as it moves
 - Drag to pan, wheel or `+`/`-` to zoom (whole levels; opening may use an in-between level, drawn from the nearest level's tiles scaled); toolbar: `Street` and one satellite button (`Satellite` = Esri when a key is set in Edit > Settings, `US Satellite` = USGS when not), `Show All Photo Locations`, `Go to Selected Location`, zoom buttons. If Esri's imagery doesn't load (key refused, offline), an amber banner says to check the key in Edit > Settings and offers `Use US Satellite Instead` (the button then reads `US Satellite` until the map is opened again)
 - Street map: OpenStreetMap's tile server (identifying User-Agent, cache headers honored, no bulk downloads, credit shown). US Satellite: USGS The National Map orthoimagery (no key; no use constraints; United States only, detailed to zoom 16 and enlarged beyond; a note says so elsewhere). Esri Satellite: Esri World Imagery from the image tile service for API keys (`ibasemaps-api.arcgis.com`; worldwide, street-level detail to zoom 19 and beyond, 256-pixel tiles). The Static Basemap Tiles service has no imagery style (only imagery labels), and this service accepts the key only as `?token=` in the address, not in a header, so the key also appears in the tile cache's records. It needs the user's own API key from a free ArcGIS Location Platform account (an open-source app can't keep its own key secret; a Public application key with only the Static basemap tiles privilege works): the key is entered in Edit > Settings and saved in plain text in the app's settings. Without a key Esri answers 200 with a JSON "Token Required" error and the map shows a note; as of 2026-10-09 it serves imagery for any non-empty token, so a wrong key is not detected (usage shows in the ArcGIS dashboard a day later)
@@ -153,7 +158,6 @@ test enforces this).
 ## Future Ideas
 
 - Add drag-and-drop support for loading photos
-- Design a new GPS badge icon to replace the satellite icon
 - Explore a future API/web/container layer (Docker on a Synology NAS) on top of the reusable `services/` backend
 
 ## Development Notes

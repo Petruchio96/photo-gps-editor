@@ -245,6 +245,20 @@ class MapWindowTests(unittest.TestCase):
         self.assertTrue(map_window.isEnabled())
         self.assertTrue(self.window.show_map_button.isEnabled())
 
+    def test_clear_removes_the_pin_and_empties_new_location(self) -> None:
+        map_window = self._open_map()
+        self.assertFalse(map_window.clear_button.isEnabled())
+        QTest.mouseClick(map_window.map_view, Qt.LeftButton, Qt.NoModifier, QPoint(300, 200))
+        self.assertTrue(map_window.clear_button.isEnabled())
+
+        QTest.mouseClick(map_window.clear_button, Qt.LeftButton)
+
+        self.assertEqual(self._fields(), ("", ""))
+        self.assertIsNone(map_window.map_view.pin)
+        self.assertFalse(map_window.clear_button.isEnabled())
+        # Still open, ready for a new click.
+        self.assertTrue(map_window.isVisible())
+
     def test_map_blocks_the_main_window_until_done(self) -> None:
         map_window = self._open_map()
 

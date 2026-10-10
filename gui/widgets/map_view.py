@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QImage, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtNetwork import (
     QNetworkAccessManager,
     QNetworkDiskCache,
@@ -49,6 +49,7 @@ from core.map_tiles import (
     world_to_lat_lon,
     zoom_to_fit,
 )
+from gui.widgets.icons import draw_location_pin, location_pin_path
 
 # Tile download results (TileFetcher.tile_finished).
 TILE_LOADED = 0
@@ -93,11 +94,12 @@ PHOTO_DOT_RADIUS = 7
 PHOTO_DOT_OUTLINE = 2.5
 PHOTO_HIT_RADIUS = 10
 
-# Colors: blue = location source (the New Location pin), as in the rest of
-# the app; photos are neon purple, which stands out on both the street map's
-# greens and the aerial photos; orange = selected.
-PIN_COLOR = QColor("#1f6feb")
-PHOTO_COLOR = QColor("#b026ff")
+# Colors: blue = what exists, orange = what is new or will change. The New
+# Location pin is the GPS badge's pin in orange (the Apply button's); photos
+# are the app's blue with a white outline; selected photos are orange
+# (circles, not the pin's teardrop).
+PIN_COLOR = QColor("#d97706")
+PHOTO_COLOR = QColor("#1f6feb")
 SELECTED_PHOTO_COLOR = QColor("#d97706")
 BACKGROUND_COLOR = QColor("#e8edf2")
 NOTE_TEXT_COLOR = QColor("#31445a")
@@ -721,39 +723,14 @@ class MapView(QWidget):
         painter.setBrush(SELECTED_PHOTO_COLOR if pin.selected else PHOTO_COLOR)
         painter.drawEllipse(center, PHOTO_DOT_RADIUS, PHOTO_DOT_RADIUS)
 
-    @staticmethod
-    def _pin_path(tip: QPointF) -> QPainterPath:
-        """
-        A teardrop pin whose point is at tip.
-        """
-        radius = PIN_WIDTH / 2
-        head_center = QPointF(tip.x(), tip.y() - PIN_HEIGHT + radius)
-        path = QPainterPath(tip)
-        path.cubicTo(
-            QPointF(tip.x() - radius * 0.3, tip.y() - radius * 0.9),
-            QPointF(tip.x() - radius, head_center.y() + radius * 0.6),
-            QPointF(tip.x() - radius, head_center.y()),
-        )
-        path.arcTo(QRectF(head_center.x() - radius, head_center.y() - radius, PIN_WIDTH, PIN_WIDTH), 180, -180)
-        path.cubicTo(
-            QPointF(tip.x() + radius, head_center.y() + radius * 0.6),
-            QPointF(tip.x() + radius * 0.3, tip.y() - radius * 0.9),
-            tip,
-        )
-        return path
-
     def _draw_location_pin(self, painter: QPainter, tip: QPointF) -> None:
-        painter.setPen(QPen(QColor("#ffffff"), 2))
-        painter.setBrush(PIN_COLOR)
-        painter.drawPath(self._pin_path(tip))
-        painter.setBrush(QColor("#ffffff"))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(tip.x(), tip.y() - PIN_HEIGHT + PIN_WIDTH / 2), 4.5, 4.5)
+        draw_location_pin(painter, tip, width=PIN_WIDTH, height=PIN_HEIGHT, fill=PIN_COLOR)
 
     def _is_on_pin(self, point: QPointF) -> bool:
         if self._pin is None:
             return False
-        return self._pin_path(self.screen_point_for(*self._pin)).contains(point)
+        tip = self.screen_point_for(*self._pin)
+        return location_pin_path(tip, PIN_WIDTH, PIN_HEIGHT).contains(point)
 
     def _draw_notes(self, painter: QPainter) -> None:
         notes = self.notes()

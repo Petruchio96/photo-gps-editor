@@ -39,7 +39,7 @@ from services.gps_edit_history import GpsEditHistory, PhotoListSnapshot
 from services.models import OverwriteEntry, WorkflowSession
 from services.workflow_facade import PhotoWorkflowFacade
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.4.1"
 
 # QSettings key for the "Keep Backup Copies of Originals" option.
 KEEP_BACKUPS_SETTING = "keep_backup_copies"

@@ -74,10 +74,13 @@ class ExifToolWrapper:
         """
         self.executable = executable or default_exiftool_executable()
 
-        # When True, ExifTool keeps an untouched copy of each file as
-        # "<name>_original" the first time it changes the file. Later changes
-        # leave that copy alone, so it always holds the original.
+        # When True, an untouched copy of each file is saved next to it as
+        # "<name>_original.<ext>" (IMG_0995.jpg -> IMG_0995_original.jpg) the
+        # first time its GPS changes, if it had GPS before. Later changes leave
+        # that copy alone, so it always holds the original.
         self.keep_backups = False
+        # Backups made since take_created_backups() was last called.
+        self._created_backups: list[Path] = []
 
         # The long-running ExifTool process is started on first use.
         self._process: subprocess.Popen | None = None
@@ -338,6 +341,7 @@ class ExifToolWrapper:
         latitude_ref = "N" if latitude >= 0 else "S"
         longitude_ref = "E" if longitude >= 0 else "W"
 
+        self._back_up_original(path)
         self._run(
             [
                 *self._overwrite_options(),
@@ -354,6 +358,7 @@ class ExifToolWrapper:
         """
         Remove GPS metadata from a file using ExifTool.
         """
+        self._back_up_original(path)
         self._run(
             [
                 *self._overwrite_options(),
@@ -368,9 +373,41 @@ class ExifToolWrapper:
 
     def _overwrite_options(self) -> list[str]:
         """
-        Options that decide whether ExifTool keeps a backup of the original file.
+        ExifTool changes the file in place. Backups are made by
+        _back_up_original instead: ExifTool's own backups are named
+        "IMG_0995.jpg_original", which isn't a photo name anything shows.
         """
-        return [] if self.keep_backups else ["-overwrite_original"]
+        return ["-overwrite_original"]
+
+    def _back_up_original(self, path: Path) -> None:
+        """
+        With keep_backups on, copy the file to "<name>_original.<ext>" next
+        to it before its first change. An existing backup is left alone (it
+        holds the true original), and a backup is never backed up itself.
+        A photo with no GPS yet isn't backed up: adding GPS loses nothing.
+
+        Raises:
+            OSError:
+                If the copy can't be made; the photo is then not changed.
+        """
+        if not self.keep_backups or path.stem.endswith("_original"):
+            return
+        backup = path.with_name(f"{path.stem}_original{path.suffix}")
+        if backup.exists():
+            return
+        gps = self.read_gps(path)
+        if gps["latitude"] is None and gps["longitude"] is None:
+            return
+        shutil.copy2(path, backup)
+        self._created_backups.append(backup)
+
+    def take_created_backups(self) -> list[Path]:
+        """
+        The backups made since the last call (so the app can add them to the
+        Photo List), and forget them.
+        """
+        backups, self._created_backups = self._created_backups, []
+        return backups
 
     def close(self) -> None:
         """

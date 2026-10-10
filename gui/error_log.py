@@ -21,7 +21,7 @@ import threading
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QtMsgType, QStandardPaths, QTimer, qInstallMessageHandler
+from PySide6.QtCore import QtMsgType, QStandardPaths, Qt, QTimer, qInstallMessageHandler
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 LOG_NAME = "error-log.txt"
@@ -30,6 +30,8 @@ LOG_NAME = "error-log.txt"
 # when there is no chance to open a file.
 _log_file = None
 _showing_message = False
+# The error message box open right now (see _show_message).
+_open_message = None
 
 
 def log_path() -> Path:
@@ -46,20 +48,31 @@ def _write(text: str) -> None:
 
 
 def _show_message(summary: str) -> None:
-    global _showing_message
+    """
+    Tell the user, without blocking: QMessageBox.warning() would run a
+    second event loop right where the error happened (background results
+    arriving inside such a loop crashed the Windows build). One at a time.
+    """
+    global _showing_message, _open_message
     if _showing_message or QApplication.instance() is None:
         return
     _showing_message = True
-    try:
-        QMessageBox.warning(
-            None,
-            "Something Went Wrong",
-            f"{summary}\n\nThe details were saved to:\n{log_path()}\n\n"
-            "Photo GPS Editor will keep running, but please send that file "
-            "with a description of what you were doing.",
-        )
-    finally:
+    dialog = QMessageBox(QMessageBox.Warning, "Something Went Wrong", (
+        f"{summary}\n\nThe details were saved to:\n{log_path()}\n\n"
+        "Photo GPS Editor will keep running, but please send that file "
+        "with a description of what you were doing."
+    ), QMessageBox.Ok)
+
+    def closed(_result: int) -> None:
+        global _showing_message, _open_message
         _showing_message = False
+        _open_message = None
+
+    dialog.finished.connect(closed)
+    # Kept until it closes, so Python doesn't delete it while it's open.
+    _open_message = dialog
+    dialog.setWindowModality(Qt.ApplicationModal)
+    dialog.show()
 
 
 def _handle_exception(exc_type, exc_value, exc_traceback) -> None:

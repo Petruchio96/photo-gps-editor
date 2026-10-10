@@ -38,7 +38,7 @@ class ErrorLogTests(unittest.TestCase):
     def test_unexpected_errors_are_logged_and_reported(self) -> None:
         shown = []
         with patch.object(error_log, "log_path", return_value=self.log), \
-                patch.object(error_log.QMessageBox, "warning", side_effect=lambda *args: shown.append(args)), \
+                patch.object(error_log.QMessageBox, "show", new=lambda dialog: shown.append(dialog.text())), \
                 patch.object(sys, "__stderr__", None):
             self.assertEqual(error_log.install(), self.log)
             try:
@@ -50,7 +50,9 @@ class ErrorLogTests(unittest.TestCase):
         self.assertIn("Photo GPS Editor started", text)
         self.assertIn("ValueError: picker broke", text)
         self.assertEqual(len(shown), 1)
-        self.assertIn(str(self.log), shown[0][2])
+        self.assertIn(str(self.log), shown[0])
+        error_log._open_message.done(0)
+        self.assertIsNone(error_log._open_message)
 
     def test_qt_messages_are_logged(self) -> None:
         with patch.object(error_log, "log_path", return_value=self.log), \

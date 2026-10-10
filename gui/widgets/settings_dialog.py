@@ -27,6 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.window_frame import apply_window_border
+
 SIGN_UP_URL = "https://location.arcgis.com/sign-up/"
 CREATE_KEY_URL = (
     "https://developers.arcgis.com/documentation/security-and-authentication/"
@@ -34,8 +36,9 @@ CREATE_KEY_URL = (
 )
 
 BACKUPS_HELP = (
-    "Before a photo is first changed, save an untouched copy next to it "
-    'with "_original" added to the file name.'
+    "Before a photo's GPS is first changed, save an untouched copy next to it, with "
+    '"_original" added to its name: IMG_0995.jpg is copied to IMG_0995_original.jpg. '
+    "Photos that had no GPS aren't copied (adding GPS loses nothing)."
 )
 
 # The Esri section's text, in three labels: one long rich-text label is
@@ -168,3 +171,8 @@ class SettingsDialog(QDialog):
             self.save_button.setToolTip(
                 "Save these settings" if changed else "Nothing has changed yet"
             )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # A clearer edge on Windows 11 (see gui/window_frame.py).
+        apply_window_border(self)

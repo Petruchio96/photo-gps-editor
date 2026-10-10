@@ -183,11 +183,13 @@ class PhotoListMixin:
                 return
             self._gps_load_token = None
             self.loading_indicator.finish()
-            QMessageBox.warning(
-                self,
-                "Could Not Load Photos",
-                f"The photos could not be read:\n\n{exc}",
-            )
+            dialog = QMessageBox(self)
+            dialog.setIcon(QMessageBox.Warning)
+            dialog.setWindowTitle("Could Not Load Photos")
+            dialog.setText(f"The photos could not be read:\n\n{exc}")
+            dialog.setStandardButtons(QMessageBox.Ok)
+            # Not the blocking QMessageBox.warning(): see show_message.
+            self.show_message(dialog)
 
         self.background.submit(work, done, failed)
 

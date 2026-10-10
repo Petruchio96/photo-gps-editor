@@ -28,7 +28,8 @@ class GpsEditHistory:
 
     Along with the GPS states it keeps the photo list as it was at the time,
     so undo and redo can put the list back too (photos added or removed
-    since then are undone with it).
+    since then are undone with it), and the backup files the edit created,
+    which undo deletes (redo makes them again).
 
     This is single-step: recording a new edit replaces the previous one. The
     history lives in memory only and is never written to disk.
@@ -38,6 +39,7 @@ class GpsEditHistory:
         self._before: dict[Path, GpsState] = {}
         self._after: dict[Path, GpsState] = {}
         self._photo_list: PhotoListSnapshot | None = None
+        self._backups: tuple[Path, ...] = ()
         self._undone = False
 
     def record(
@@ -46,6 +48,7 @@ class GpsEditHistory:
         before: dict[Path, GpsState],
         after: dict[Path, GpsState],
         photo_list: PhotoListSnapshot | None = None,
+        backups: tuple[Path, ...] = (),
     ) -> None:
         """
         Remember an edit. Only files present in both mappings are kept, so
@@ -55,18 +58,35 @@ class GpsEditHistory:
             photo_list:
                 The photo list when the edit was made (an edit doesn't change
                 the list, so this is the list both before and after it).
+            backups:
+                Backup files ("<name>_original.<ext>") the edit created.
         """
         paths = [path for path in after if path in before]
         self._before = {path: before[path] for path in paths}
         self._after = {path: after[path] for path in paths}
         self._photo_list = photo_list if paths else None
+        self._backups = tuple(backups) if paths else ()
         self._undone = False
 
     def clear(self) -> None:
         self._before = {}
         self._after = {}
         self._photo_list = None
+        self._backups = ()
         self._undone = False
+
+    @property
+    def backups(self) -> tuple[Path, ...]:
+        """
+        The backup files the edit created (delete them on undo).
+        """
+        return self._backups
+
+    def set_backups(self, backups: tuple[Path, ...]) -> None:
+        """
+        After redo: the backups it made again, for the next undo.
+        """
+        self._backups = tuple(backups)
 
     @property
     def photo_list(self) -> PhotoListSnapshot | None:

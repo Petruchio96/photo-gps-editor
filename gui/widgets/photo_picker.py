@@ -66,6 +66,7 @@ from core.places import (
 )
 from gui.background import CancelToken
 from gui.widgets.thumbnail_delegate import IN_LIST_ROLE, SHIMMER_ROLE, ThumbnailDelegate
+from gui.window_frame import apply_window_border
 from services.models import WorkflowSession
 
 # Item data roles.
@@ -182,9 +183,31 @@ class PickerTree(QTreeWidget):
     highlight covers only its name, not the arrow beside it.
     """
 
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self._hovered_index = None
+        # A new selection repaints everything too (see mouseMoveEvent).
+        self.currentItemChanged.connect(lambda *_: self.viewport().update())
+
     def drawBranches(self, painter: QPainter, rect, index) -> None:
         # Drawn in drawRow instead, after Qt has painted the row.
         pass
+
+    def mouseMoveEvent(self, event) -> None:
+        # Qt repaints only the row under the mouse when the hover moves, which
+        # left a stale 1-pixel edge of a highlight in the arrow column beside
+        # a neighboring row. Repaint the whole (small) tree instead.
+        index = self.indexAt(event.position().toPoint())
+        if index != self._hovered_index:
+            self._hovered_index = index
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered_index = None
+        self.viewport().update()
+        super().leaveEvent(event)
 
     def drawRow(self, painter: QPainter, option, index) -> None:
         super().drawRow(painter, option, index)
@@ -193,8 +216,9 @@ class PickerTree(QTreeWidget):
         self._paint_arrow(painter, rect, index)
 
     def _paint_arrow(self, painter: QPainter, rect: QRect, index) -> None:
-        # Cover any selection or hover color Qt painted in the arrow column.
-        painter.fillRect(rect, TREE_BACKGROUND)
+        # Cover any selection or hover color Qt painted in the arrow column,
+        # including a pixel above and below (antialiased highlight edges).
+        painter.fillRect(rect.adjusted(0, -1, 0, 1), TREE_BACKGROUND)
         item = self.itemFromIndex(index)
         if item is None:
             return
@@ -376,6 +400,11 @@ class PhotoPickerDialog(QDialog):
         self.open_folder(start_folder)
 
     # --- Layout ---------------------------------------------------------------
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # A clearer edge on Windows 11 (see gui/window_frame.py).
+        apply_window_border(self)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
